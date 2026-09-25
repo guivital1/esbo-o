@@ -11,19 +11,18 @@ Instale o Node.js compatível com o Vite deste projeto (**série 20 a partir da 
 ```bash
 git clone https://github.com/guivital1/esbo-o.git
 cd esbo-o
-git switch --track origin/feat/next-five-ux
 cd royalties_ops/web
 npm ci
 npm run dev
 ```
 
-Abra o endereço indicado pelo Vite, normalmente `http://localhost:5173/`. No Windows, os mesmos comandos funcionam no PowerShell. Para conferir a compilação, execute `npm run build` dentro de `royalties_ops/web`. A branch `main` é um checkpoint anterior; a interface atual está em `feat/next-five-ux`.
+Abra o endereço indicado pelo Vite, normalmente `http://localhost:5173/`. No Windows, os mesmos comandos funcionam no PowerShell. Para conferir a compilação, execute `npm run build` dentro de `royalties_ops/web`. A interface atual está na branch principal, `main`.
 
 > **Atenção:** este comando abre o Design Lab para comparação visual. No computador da empresa, o projeto oficial que já consulta a API deve continuar em seu próprio repositório. Não substitua o projeto oficial por este protótipo.
 
 ## Aplicar o layout ao projeto oficial da empresa
 
-Abra **os dois projetos lado a lado** no computador da empresa: este Design Lab na branch `feat/next-five-ux` e o projeto oficial em sua branch de trabalho. Use o Design Lab como referência executável de tela e interação. Preserve no projeto oficial as chamadas à API, autenticação, tratamento de erros, regras financeiras e permissões existentes.
+Abra **os dois projetos lado a lado** no computador da empresa: este Design Lab na branch `main` e o projeto oficial em sua branch de trabalho. Use o Design Lab como referência executável de tela e interação. Preserve no projeto oficial as chamadas à API, autenticação, tratamento de erros, regras financeiras e permissões existentes.
 
 Roteiro para o Codex no projeto oficial:
 
@@ -37,7 +36,7 @@ Roteiro para o Codex no projeto oficial:
 
 Mensagem sugerida ao Codex **dentro do projeto oficial**:
 
-> Tenho o projeto oficial e o Design Lab `guivital1/esbo-o`, branch `feat/next-five-ux`, disponíveis neste computador. Inspecione primeiro as APIs, tipos, autenticação e regras de negócio do projeto oficial. Use o Design Lab como referência visual e de interação para portar as telas gradualmente. Preserve os dados e integrações reais; não copie `src/api.ts` nem `src/mockData.ts` do laboratório. Mostre o mapeamento entre componentes e dados antes de editar, valide cada tela em desktop e execute os testes do projeto oficial. Não publique nem altere produção sem meu pedido.
+> Tenho o projeto oficial e o Design Lab `guivital1/esbo-o`, branch `main`, disponíveis neste computador. Inspecione primeiro as APIs, tipos, autenticação e regras de negócio do projeto oficial. Use o Design Lab como referência visual e de interação para portar as telas gradualmente. Preserve os dados e integrações reais; não copie `src/api.ts` nem `src/mockData.ts` do laboratório. Mostre o mapeamento entre componentes e dados antes de editar, valide cada tela em desktop e execute os testes do projeto oficial. Não publique nem altere produção sem meu pedido.
 
 ## O que existe hoje
 
@@ -113,15 +112,15 @@ O significado financeiro de reenviar um arquivo com o mesmo nome — **somar um 
 
 ### Recuperar o layout anterior às cinco melhorias
 
-O commit [`3ae553e`](https://github.com/guivital1/esbo-o/commit/3ae553e) na branch `main` é o checkpoint publicado antes desta rodada. As cinco melhorias ficam na branch `feat/next-five-ux`. Para abrir o estado anterior em outra cópia do repositório:
+O commit [`3ae553e`](https://github.com/guivital1/esbo-o/commit/3ae553e) é o checkpoint anterior às cinco melhorias. Ele continua no histórico da `main`. Para abrir aquele layout em outra cópia do repositório:
 
 ```bash
 git clone https://github.com/guivital1/esbo-o.git
 cd esbo-o
-git switch main
+git switch -c checkpoint-layout-anterior 3ae553e
 cd royalties_ops/web
 npm ci
 npm run dev
 ```
 
-Para comparar a nova proposta, execute `git switch feat/next-five-ux` na raiz do repositório e recarregue o navegador. Trocar de branch requer uma árvore de trabalho sem alterações locais pendentes.
+Para voltar ao layout atual, execute `git switch main` na raiz do repositório e recarregue o navegador. Trocar de branch requer uma árvore de trabalho sem alterações locais pendentes.
