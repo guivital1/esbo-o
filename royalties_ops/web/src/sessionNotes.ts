@@ -17,4 +17,12 @@ export type SessionAction = {
   detail: string;
   actor: string;
   createdAt: string;
+  changes?: { field: string; before: string; after: string }[];
+};
+
+export type SavedOperationView = {
+  id: string;
+  name: string;
+  filter: "all" | "action" | "mine" | "unidentified";
+  query: string;
 };

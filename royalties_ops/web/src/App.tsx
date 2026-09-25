@@ -7,7 +7,7 @@ import ReconciliationPage from "./ReconciliationPage";
 import type { ReconciliationSection } from "./ReconciliationPage";
 import Spotlight from "./Spotlight";
 import type { HistorySearchTarget, SearchArea } from "./Spotlight";
-import type { SessionAction, SessionNote } from "./sessionNotes";
+import type { SavedOperationView, SessionAction, SessionNote } from "./sessionNotes";
 
 type Area = "bank" | "sources" | ReconciliationSection;
 type NavigationTarget = { area: Area; sourceId?: string; history?: HistorySearchTarget; bankStatementId?: string; transactionIndex?: number; resetBank?: boolean };
@@ -41,6 +41,7 @@ export default function App({ spotlightOpen, onCloseSpotlight }: Props) {
   const [operationQuery, setOperationQuery] = useState("");
   const [sessionNotes, setSessionNotes] = useState<SessionNote[]>([]);
   const [sessionActions, setSessionActions] = useState<SessionAction[]>([]);
+  const [savedOperationViews, setSavedOperationViews] = useState<SavedOperationView[]>([]);
   const [operationDraftDirty, setOperationDraftDirty] = useState(false);
   const [pendingNavigation, setPendingNavigation] = useState<NavigationTarget>();
   const navigationDialog = useRef<HTMLElement>(null);
@@ -159,7 +160,7 @@ export default function App({ spotlightOpen, onCloseSpotlight }: Props) {
           sourceId: sourceIds.length === 1 ? sourceIds[0] : current.sourceId && sourceIds.includes(current.sourceId) ? current.sourceId : "" } : current)} /></div>
       {area === "sources" && <SourcesPage sources={sources} loading={sourcesLoading} error={sourcesError} openRequest={sourceOpenRequest} onSourceCreated={sourceCreated} onSourceSaved={sourceSaved} />}
       {(area === "overview" || area === "operation" || area === "import") &&
-        <ReconciliationPage section={area} onSectionChange={(section) => navigate({ area: section })} onReviewBankStatement={(id, transactionIndex) => navigate({ area: "bank", bankStatementId: id, transactionIndex })} entity={reconciliationEntity} onEntityChange={setReconciliationEntity} period={reconciliationPeriod} onPeriodChange={setReconciliationPeriod} statementId={reconciliationStatementId} onStatementChange={setReconciliationStatementId} selectedSourceId={reconciliationSourceId} onSelectedSourceChange={setReconciliationSourceId} operationFilter={operationFilter} onOperationFilterChange={setOperationFilter} operationQuery={operationQuery} onOperationQueryChange={setOperationQuery} onOperationDraftDirtyChange={setOperationDraftDirty} sessionNotes={sessionNotes} onAddSessionNote={(note) => setSessionNotes((current) => [note, ...current])} sessionActions={sessionActions} onAddSessionAction={(action) => setSessionActions((current) => [action, ...current])} sources={sources} sourcesError={sourcesError} historyOpenRequest={historyOpenRequest} />}
+        <ReconciliationPage section={area} onSectionChange={(section) => navigate({ area: section })} onReviewBankStatement={(id, transactionIndex) => navigate({ area: "bank", bankStatementId: id, transactionIndex })} entity={reconciliationEntity} onEntityChange={setReconciliationEntity} period={reconciliationPeriod} onPeriodChange={setReconciliationPeriod} statementId={reconciliationStatementId} onStatementChange={setReconciliationStatementId} selectedSourceId={reconciliationSourceId} onSelectedSourceChange={setReconciliationSourceId} operationFilter={operationFilter} onOperationFilterChange={setOperationFilter} operationQuery={operationQuery} onOperationQueryChange={setOperationQuery} savedOperationViews={savedOperationViews} onSaveOperationView={(saved) => setSavedOperationViews((current) => [...current, saved])} onDeleteOperationView={(id) => setSavedOperationViews((current) => current.filter((item) => item.id !== id))} onOperationDraftDirtyChange={setOperationDraftDirty} sessionNotes={sessionNotes} onAddSessionNote={(note) => setSessionNotes((current) => [note, ...current])} sessionActions={sessionActions} onAddSessionAction={(action) => setSessionActions((current) => [action, ...current])} sources={sources} sourcesError={sourcesError} historyOpenRequest={historyOpenRequest} />}
     </main>
     {pendingNavigation && <div className="draft-navigation-backdrop"><section ref={navigationDialog} className="draft-navigation-dialog" role="alertdialog" aria-modal="true" aria-labelledby="draft-navigation-title" aria-describedby="draft-navigation-description"><h2 id="draft-navigation-title">Lançamento não confirmado</h2><p id="draft-navigation-description">Sair da Operação descartará os campos preenchidos neste lançamento.</p><div><button ref={navigationContinue} type="button" onClick={cancelPendingNavigation}>Continuar preenchendo</button><button type="button" onClick={() => { const target = pendingNavigation; setPendingNavigation(undefined); setOperationDraftDirty(false); commitNavigation(target); }}>Descartar e sair</button></div></section></div>}
     {spotlightOpen && <Spotlight sources={sources} onClose={onCloseSpotlight} onNavigate={navigateFromSpotlight} />}

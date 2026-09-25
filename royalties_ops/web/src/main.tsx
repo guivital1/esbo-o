@@ -11,6 +11,8 @@ function DesignLab() {
   const [keyboardHelpOpen, setKeyboardHelpOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
   const profileTriggerRef = useRef<HTMLButtonElement>(null);
+  const profileHelpRef = useRef<HTMLButtonElement>(null);
+  const profileSignoutRef = useRef<HTMLButtonElement>(null);
   const searchTriggerRef = useRef<HTMLButtonElement>(null);
   const helpReturnFocus = useRef<HTMLElement>(null);
 
@@ -22,7 +24,7 @@ function DesignLab() {
       if (event.key === "?" && signedIn && !keyboardHelpOpen && !spotlightOpen &&
           !(event.target instanceof HTMLElement && (event.target.isContentEditable || event.target.closest("input, textarea, select"))) &&
           !document.querySelector('[role="dialog"][aria-modal="true"], [role="alertdialog"][aria-modal="true"]')) {
-        event.preventDefault(); helpReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        event.preventDefault(); helpReturnFocus.current = profileRef.current?.contains(document.activeElement) ? profileTriggerRef.current : document.activeElement instanceof HTMLElement ? document.activeElement : null;
         setProfileOpen(false); setKeyboardHelpOpen(true);
       }
     };
@@ -52,16 +54,16 @@ function DesignLab() {
     {signedIn && <a className="skip-to-content" href="#main-content">Ir para o conteúdo</a>}
     {signedIn && <header className="design-lab-bar">
         <button ref={searchTriggerRef} type="button" className="spotlight-trigger" aria-label="Abrir busca rápida" aria-keyshortcuts="Meta+K Control+K" onClick={() => { setProfileOpen(false); setSpotlightOpen(true); }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.4"/><path d="m16 16 4.1 4.1"/></svg><span>Buscar</span><kbd>⌘ K</kbd></button>
-        <button type="button" className="keyboard-help-trigger" aria-label="Ver atalhos de teclado" aria-keyshortcuts="?" onClick={(event) => { helpReturnFocus.current = event.currentTarget; setProfileOpen(false); setSpotlightOpen(false); setKeyboardHelpOpen(true); }}>Atalhos <kbd>?</kbd></button>
         <div className="profile-menu" ref={profileRef}>
-          <button ref={profileTriggerRef} type="button" className="profile-trigger" aria-haspopup="menu" aria-expanded={profileOpen} aria-controls="profile-options" onClick={() => setProfileOpen((open) => !open)}>
+          <button ref={profileTriggerRef} type="button" className="profile-trigger" aria-haspopup="menu" aria-expanded={profileOpen} aria-controls="profile-options" onClick={() => setProfileOpen((open) => !open)} onKeyDown={(event) => { if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); const first = event.key === "ArrowDown"; setProfileOpen(true); requestAnimationFrame(() => (first ? profileHelpRef : profileSignoutRef).current?.focus()); } }}>
             <span className="profile-avatar" aria-hidden="true">GV</span>
             <span className="profile-label"><strong>Guilherme Vital</strong><small>Estagiário de Backoffice</small></span>
             <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" /></svg>
           </button>
-          {profileOpen && <div className="profile-popover" id="profile-options" role="menu" aria-label="Conta">
+          {profileOpen && <div className="profile-popover" id="profile-options" role="menu" aria-label="Conta" onKeyDown={(event) => { if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return; event.preventDefault(); const target = event.key === "Home" ? profileHelpRef : event.key === "End" ? profileSignoutRef : document.activeElement === profileHelpRef.current ? profileSignoutRef : profileHelpRef; target.current?.focus(); }}>
             <div className="profile-identity"><span className="profile-avatar" aria-hidden="true">GV</span><div><strong>Guilherme Vital</strong><small>Estagiário de Backoffice</small></div></div>
-            <button type="button" role="menuitem" className="profile-signout" onClick={() => { setProfileOpen(false); setSignedIn(false); }}>Sair</button>
+            <button ref={profileHelpRef} type="button" role="menuitem" className="profile-menu-item" aria-keyshortcuts="?" onClick={() => { helpReturnFocus.current = profileTriggerRef.current; setProfileOpen(false); setSpotlightOpen(false); setKeyboardHelpOpen(true); }}>Atalhos de teclado <kbd>?</kbd></button>
+            <button ref={profileSignoutRef} type="button" role="menuitem" className="profile-menu-item" onClick={() => { setProfileOpen(false); setSignedIn(false); }}>Sair</button>
           </div>}
         </div>
     </header>}

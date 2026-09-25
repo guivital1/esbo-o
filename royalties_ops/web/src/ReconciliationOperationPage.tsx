@@ -3,7 +3,7 @@ import { addManualCatalogEntry, getArtists } from "./api";
 import type { Artist, BankStatementView, CatalogEntry, ReconciliationRow, ReconciliationView } from "./types";
 import { cents, money, moneyFromCents, monthLabel, percent, sourceNumber } from "./reconciliationFormat";
 import StatusNotice from "./StatusNotice";
-import type { SessionAction } from "./sessionNotes";
+import type { SavedOperationView, SessionAction, SessionNote } from "./sessionNotes";
 import { onTabArrowKey } from "./keyboardTabs";
 
 export type ArtistComposition = { key: string; nome: string; valorCents: bigint; lancamentos: number; identificada: boolean };
@@ -22,7 +22,7 @@ export function composeByArtist(entries: CatalogEntry[]): ArtistComposition[] {
 }
 
 type QueueStatus = "pending" | "balanced" | "review";
-type QueueFilter = "all" | "action" | "mine" | "unidentified";
+type QueueFilter = SavedOperationView["filter"];
 
 function hasMovement(row: ReconciliationRow): boolean {
   return cents(row.recebido) !== 0n || cents(row.catalogo_bruto) !== 0n || cents(row.saldo_bruto) !== 0n;
@@ -50,24 +50,28 @@ const statusLabel: Record<QueueStatus, string> = {
   pending: "A conciliar", balanced: "Conciliada", review: "Revisar saldo",
 };
 const statusOrder: Record<QueueStatus, number> = { review: 0, pending: 1, balanced: 2 };
-const demoActivity: Record<string, { action: string; actor: string; day: string; time: string }[]> = {
+const demoActivity: Record<string, { action: string; actor: string; day: string; time: string; changes?: SessionAction["changes"] }[]> = {
   "demo-source-a": [
-    { action: "Importou lote de lançamentos", actor: "Operador Demo A", day: "28", time: "10:00" },
+    { action: "Importou lote de lançamentos", actor: "Operador Demo A", day: "28", time: "10:00",
+      changes: [{ field: "Conciliado", before: "R$ 0,00", after: "R$ 1.200,00" }] },
     { action: "Conferiu identificação da fonte", actor: "Operador Demo B", day: "24", time: "14:18" },
   ],
   "demo-source-b": [
-    { action: "Importou lote de lançamentos", actor: "Operador Demo A", day: "28", time: "10:00" },
+    { action: "Importou lote de lançamentos", actor: "Operador Demo A", day: "28", time: "10:00",
+      changes: [{ field: "Conciliado", before: "R$ 0,00", after: "R$ 700,00" }] },
   ],
 };
 
 type Props = { view?: ReconciliationView; statement?: BankStatementView; bank?: string; statementVersion?: number; selectedSourceId: string;
   onSourceChange: (id: string) => void; filter: QueueFilter; onFilterChange: (filter: QueueFilter) => void;
   queueQuery: string; onQueueQueryChange: (query: string) => void; onDraftDirtyChange: (dirty: boolean) => void;
+  savedViews: SavedOperationView[]; onSaveView: (view: SavedOperationView) => void; onDeleteView: (id: string) => void;
+  sessionNotes: SessionNote[]; sessionActions: SessionAction[];
   onReviewBankStatement: (id: string, transactionIndex?: number) => void;
   onAddSessionAction: (action: SessionAction) => void;
   onSaved: (view: ReconciliationView) => void };
 
-export default function ReconciliationOperationPage({ view, statement, bank, statementVersion, selectedSourceId, onSourceChange, filter, onFilterChange, queueQuery, onQueueQueryChange, onDraftDirtyChange, onReviewBankStatement, onAddSessionAction, onSaved }: Props) {
+export default function ReconciliationOperationPage({ view, statement, bank, statementVersion, selectedSourceId, onSourceChange, filter, onFilterChange, queueQuery, onQueueQueryChange, savedViews, onSaveView, onDeleteView, sessionNotes, sessionActions, onDraftDirtyChange, onReviewBankStatement, onAddSessionAction, onSaved }: Props) {
   const [detailOpen, setDetailOpen] = useState(() => Boolean(selectedSourceId && view?.rows.some((item) => item.id_fonte === selectedSourceId && hasMovement(item))));
   const [mode, setMode] = useState<"artists" | "entries">("artists");
   const [search, setSearch] = useState("");
@@ -83,6 +87,10 @@ export default function ReconciliationOperationPage({ view, statement, bank, sta
   const [feedback, setFeedback] = useState("");
   const [activeRowKey, setActiveRowKey] = useState("");
   const [pendingManualExit, setPendingManualExit] = useState<"manual" | "detail" | null>(null);
+  const [viewName, setViewName] = useState("");
+  const [savingView, setSavingView] = useState(false);
+  const [viewFeedback, setViewFeedback] = useState("");
+  const [expandedDivergence, setExpandedDivergence] = useState<"review" | "pending" | "unidentified" | null>(null);
   const submissionKey = useRef(crypto.randomUUID());
   const dateInput = useRef<HTMLInputElement>(null);
   const closeButton = useRef<HTMLButtonElement>(null);
@@ -90,6 +98,7 @@ export default function ReconciliationOperationPage({ view, statement, bank, sta
   const trigger = useRef<HTMLButtonElement>(null);
   const addButton = useRef<HTMLButtonElement>(null);
   const manualWarningContinue = useRef<HTMLButtonElement>(null);
+  const saveViewTrigger = useRef<HTMLButtonElement>(null);
   const restoredSelection = useRef(false);
   const manualDraftDirty = manualOpen && Boolean(entryDate || artistId || amount.trim() || reference.trim());
   useEffect(() => { onDraftDirtyChange(manualDraftDirty); }, [manualDraftDirty, onDraftDirtyChange]);
@@ -110,6 +119,10 @@ export default function ReconciliationOperationPage({ view, statement, bank, sta
     .filter(({ item, index }) => item.review_required && !statement.allocations?.[index]) ?? [];
   const pendingTotal = actionRows.reduce((total, item) => total + (cents(item.saldo_bruto) > 0n ? cents(item.saldo_bruto) : 0n), 0n);
   const reviewCount = actionRows.filter((item) => queueStatus(item) === "review").length;
+  const excessRows = actionRows.filter((item) => queueStatus(item) === "review");
+  const pendingRows = actionRows.filter((item) => queueStatus(item) === "pending");
+  const excessTotal = excessRows.reduce((total, item) => total + absoluteBalance(item), 0n);
+  const unidentifiedTotal = unidentifiedRows.reduce((total, { item }) => total + cents(item.amount), 0n);
   const queueTerm = queueQuery.trim().toLocaleLowerCase("pt-BR");
   const visibleQueue = queue.filter((item) => (filter === "all" || (filter === "action" && queueStatus(item) !== "balanced") || (filter === "mine" && item.assignee === "Guilherme Vital" && queueStatus(item) !== "balanced")) &&
     `${item.nome_fonte} ${sourceNumber(item.numero_fonte)}`.toLocaleLowerCase("pt-BR").includes(queueTerm));
@@ -139,6 +152,15 @@ export default function ReconciliationOperationPage({ view, statement, bank, sta
   const enteredCents = manualAmountCents(amount);
   const projectedConciliated = enteredCents === null ? null : cents(row?.catalogo_bruto ?? "0.00") + enteredCents;
   const projectedPending = projectedConciliated === null ? null : receivedCents - projectedConciliated;
+  const sourceAudit = view ? [
+    ...sessionActions.filter((action) => action.reconciliationId === view.id_conciliacao && action.sourceId === sourceId)
+      .map((action) => ({ id: action.id, title: action.title, detail: action.detail, actor: action.actor, at: action.createdAt, changes: action.changes ?? [], demo: false })),
+    ...sessionNotes.filter((note) => note.reconciliationId === view.id_conciliacao && note.sourceId === sourceId)
+      .map((note) => ({ id: note.id, title: "Observação registrada", detail: note.text, actor: `${note.author} · ${note.role}`, at: note.createdAt, changes: [], demo: false })),
+    ...(demoActivity[sourceId] ?? []).map((item, index) => ({ id: `demo-${sourceId}-${index}`, title: item.action,
+      detail: "Registro fictício da competência", actor: item.actor, at: `${view.period}-${item.day}T${item.time}:00`, changes: item.changes ?? [], demo: true })),
+  ].sort((a, b) => Date.parse(b.at) - Date.parse(a.at)) : [];
+  const auditDate = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" });
   const metricPercent = (value: string) => {
     if (receivedCents === 0n) return "—";
     const scaled = (cents(value) * 10000n + receivedCents / 2n) / receivedCents;
@@ -244,7 +266,11 @@ export default function ReconciliationOperationPage({ view, statement, bank, sta
       onSaved(saved);
       onAddSessionAction({ id: crypto.randomUUID(), reconciliationId: view.id_conciliacao, sourceId,
         title: "Lançamento manual adicionado", detail: `${row?.nome_fonte ?? "Fonte"} · ${money(normalizedAmount)} · ${reference.trim()}`,
-        actor: "Guilherme Vital · Estagiário de Backoffice", createdAt: new Date().toISOString() });
+        actor: "Guilherme Vital · Estagiário de Backoffice", createdAt: new Date().toISOString(),
+        changes: [
+          { field: "Conciliado", before: money(row?.catalogo_bruto ?? "0"), after: moneyFromCents(projectedConciliated ?? 0n) },
+          { field: "A conciliar", before: money(row?.saldo_bruto ?? "0"), after: moneyFromCents(projectedPending ?? 0n) },
+        ] });
       setPendingManualExit(null); setManualOpen(false); setEntryDate(""); setArtistId(""); setAmount(""); setReference("");
       submissionKey.current = crypto.randomUUID();
       const warnings = (saved as ReconciliationView & { ingestion_warnings?: string[] }).ingestion_warnings ?? [];
@@ -262,12 +288,37 @@ export default function ReconciliationOperationPage({ view, statement, bank, sta
     { key: "mine", label: "Minhas pendências", count: mineRows.length },
     { key: "unidentified", label: "Sem fonte", count: unidentifiedRows.length },
   ];
+  const saveCurrentView = (event: FormEvent) => {
+    event.preventDefault();
+    const name = viewName.trim();
+    if (!name) return;
+    if (savedViews.some((item) => item.name.toLocaleLowerCase("pt-BR") === name.toLocaleLowerCase("pt-BR"))) {
+      setViewFeedback("Já existe uma visão com esse nome."); return;
+    }
+    onSaveView({ id: crypto.randomUUID(), name, filter, query: queueQuery.trim() });
+    setSavingView(false); setViewName(""); setViewFeedback(`Visão “${name}” salva nesta sessão.`);
+    requestAnimationFrame(() => saveViewTrigger.current?.focus());
+  };
+  const applySavedView = (saved: SavedOperationView) => {
+    onFilterChange(saved.filter); onQueueQueryChange(saved.query);
+    setViewFeedback(`Visão “${saved.name}” aplicada.`);
+  };
 
   return <div className="reconciliation-operation" aria-label="Operação da conciliação">
     <section className="operation-priority" aria-label="Prioridade da conciliação"><div><span>FILA DA COMPETÊNCIA</span><strong>{actionRows.length ? `${actionRows.length} ${actionRows.length === 1 ? "fonte precisa" : "fontes precisam"} de ação` : "Todas as fontes conciliadas"}</strong><p>{actionRows.length ? `${moneyFromCents(pendingTotal)} a conciliar${reviewCount ? ` · ${reviewCount} ${reviewCount === 1 ? "saldo para revisar" : "saldos para revisar"}` : ""}` : "Nenhuma diferença entre recebido e conciliado nas fontes com movimento."}</p></div>{actionRows[0] && <button type="button" onClick={(event) => { trigger.current = event.currentTarget; selectSource(actionRows[0].id_fonte); }}><span>PRÓXIMA FONTE</span><strong>{actionRows[0].nome_fonte}</strong><small>{queueStatus(actionRows[0]) === "review" ? "Revisar saldo" : `${money(actionRows[0].saldo_bruto)} a conciliar`} <span aria-hidden="true">↗</span></small></button>}</section>
+    <section className="operation-divergences" aria-label="Fila de divergências"><header><div><h2>Fila de divergências</h2><p>Separe o que precisa de conferência pelo motivo da diferença.</p></div><span>{pendingRows.length + excessRows.length + unidentifiedRows.length} itens</span></header>
+      {pendingRows.length + excessRows.length + unidentifiedRows.length === 0 ? <p className="operation-divergences-empty">Nenhuma divergência nesta competência.</p> : <div className="operation-divergence-groups">
+        {excessRows.length > 0 && <div className="operation-divergence-group"><h3>Catálogo acima do recebido <small>{excessRows.length} · {moneyFromCents(excessTotal)}</small></h3>{(expandedDivergence === "review" ? excessRows : excessRows.slice(0, 3)).map((item) => <button key={item.id_fonte} type="button" onClick={(event) => { trigger.current = event.currentTarget; selectSource(item.id_fonte); }}><span><strong>{item.nome_fonte}</strong><small>Revisar lançamentos e composição</small></span><b>{moneyFromCents(absoluteBalance(item))}</b><span aria-hidden="true">↗</span></button>)}{excessRows.length > 3 && <button className="operation-divergence-expand" type="button" aria-expanded={expandedDivergence === "review"} onClick={() => setExpandedDivergence(expandedDivergence === "review" ? null : "review")}>{expandedDivergence === "review" ? "Mostrar menos" : `Ver todas as ${excessRows.length} fontes`}</button>}</div>}
+        {pendingRows.length > 0 && <div className="operation-divergence-group"><h3>Recebido ainda não conciliado <small>{pendingRows.length} · {moneyFromCents(pendingTotal)}</small></h3>{(expandedDivergence === "pending" ? pendingRows : pendingRows.slice(0, 3)).map((item) => <button key={item.id_fonte} type="button" onClick={(event) => { trigger.current = event.currentTarget; selectSource(item.id_fonte); }}><span><strong>{item.nome_fonte}</strong><small>Conferir extrato e catálogo</small></span><b>{money(item.saldo_bruto)}</b><span aria-hidden="true">↗</span></button>)}{pendingRows.length > 3 && <button className="operation-divergence-expand" type="button" aria-expanded={expandedDivergence === "pending"} onClick={() => setExpandedDivergence(expandedDivergence === "pending" ? null : "pending")}>{expandedDivergence === "pending" ? "Mostrar menos" : `Ver todas as ${pendingRows.length} fontes`}</button>}</div>}
+        {unidentifiedRows.length > 0 && <div className="operation-divergence-group"><h3>Recebimentos sem fonte <small>{unidentifiedRows.length} · {moneyFromCents(unidentifiedTotal)}</small></h3>{(expandedDivergence === "unidentified" ? unidentifiedRows : unidentifiedRows.slice(0, 3)).map(({ item, index }) => <button key={item.id_transacao ?? index} type="button" onClick={() => onReviewBankStatement(view.bank_statement_id, index)}><span><strong>{item.description}</strong><small>Identificar fonte no extrato</small></span><b>{money(item.amount)}</b><span aria-hidden="true">↗</span></button>)}{unidentifiedRows.length > 3 && <button className="operation-divergence-expand" type="button" aria-expanded={expandedDivergence === "unidentified"} onClick={() => setExpandedDivergence(expandedDivergence === "unidentified" ? null : "unidentified")}>{expandedDivergence === "unidentified" ? "Mostrar menos" : `Ver todos os ${unidentifiedRows.length} recebimentos`}</button>}</div>}
+      </div>}
+    </section>
     <section className="operation-source-list" aria-label="Fontes da competência">
       <header className="operation-list-heading"><div><h2>{filter === "unidentified" ? "Recebimentos sem fonte" : "Fontes da competência"}</h2><p>{filter === "unidentified" ? "Selecione um recebimento para identificar a fonte no extrato." : "Ordenadas por prioridade e diferença. Selecione uma fonte para conferir os lançamentos."}</p></div><span className="operation-list-total">{filter === "unidentified" ? `${unidentifiedRows.length} ${unidentifiedRows.length === 1 ? "recebimento" : "recebimentos"}` : `${queue.length} ${queue.length === 1 ? "fonte" : "fontes"}`}</span></header>
       <div className="operation-list-tools"><div className="operation-list-filters" role="group" aria-label="Visões rápidas da fila" onKeyDown={onTabArrowKey}>{filters.map((item) => <button key={item.key} type="button" className={filter === item.key ? "is-active" : ""} aria-pressed={filter === item.key} onClick={() => onFilterChange(item.key)}>{item.label}<span>{item.count}</span></button>)}</div><label className="operation-list-search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.4"/><path d="m16 16 4.1 4.1"/></svg><input value={queueQuery} onChange={(event) => onQueueQueryChange(event.target.value)} placeholder={filter === "unidentified" ? "Buscar recebimento" : "Buscar fonte"} aria-label={filter === "unidentified" ? "Buscar recebimento sem fonte" : "Buscar fonte na operação"} /></label></div>
+      <div className="operation-saved-views"><label>Visões salvas<select aria-label="Aplicar visão salva" value={savedViews.find((item) => item.filter === filter && item.query === queueQuery.trim())?.id ?? ""} onChange={(event) => { const saved = savedViews.find((item) => item.id === event.target.value); if (saved) applySavedView(saved); }}><option value="">{savedViews.length ? "Selecionar visão" : "Nenhuma visão salva"}</option>{savedViews.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><button ref={saveViewTrigger} type="button" onClick={() => { setSavingView((open) => !open); setViewFeedback(""); }}>{savingView ? "Cancelar" : "Salvar visão atual"}</button>{savedViews.find((item) => item.filter === filter && item.query === queueQuery.trim()) && <button type="button" className="operation-delete-view" onClick={() => { const selected = savedViews.find((item) => item.filter === filter && item.query === queueQuery.trim()); if (selected) { onDeleteView(selected.id); setViewFeedback(`Visão “${selected.name}” removida.`); } }}>Remover visão</button>}</div>
+      {savingView && <form className="operation-save-view-form" onSubmit={saveCurrentView}><label>Nome da visão<input autoFocus maxLength={40} value={viewName} onChange={(event) => setViewName(event.target.value)} placeholder="Ex.: Fontes para revisar" /></label><button type="submit" disabled={!viewName.trim()}>Salvar nesta sessão</button></form>}
+      {viewFeedback && <p className="operation-view-feedback" role="status">{viewFeedback}</p>}
       {filter === "mine" && <p className="operation-filter-hint">Atribuição demonstrativa a Guilherme Vital nesta competência.</p>}
       <div className="operation-source-rows" onKeyDown={moveRowFocus}>{filter === "unidentified" ? (visibleUnidentified.length ? visibleUnidentified.map(({ item, index }) => <button key={item.id_transacao ?? index} data-row-key={`receipt:${item.id_transacao ?? index}`} type="button" tabIndex={keyboardActiveRowKey === `receipt:${item.id_transacao ?? index}` ? 0 : -1} onFocus={() => setActiveRowKey(`receipt:${item.id_transacao ?? index}`)} className="operation-source-row operation-unidentified-row" onClick={() => view && onReviewBankStatement(view.bank_statement_id, index)}><span className="operation-row-identity"><strong>{item.description}</strong><small>{item.date.split("-").reverse().join("/")} · Extrato {bank ?? "bancário"}</small></span><span className="operation-row-values"><span>Recebido <b>{money(item.amount)}</b></span></span><span className="operation-row-next"><span className="operation-row-status is-review">Sem fonte</span><small>Analisar no extrato</small></span><span className="operation-row-arrow" aria-hidden="true">›</span></button>) : <div className="operation-list-empty">{unidentifiedRows.length ? "Nenhum recebimento corresponde à busca." : "Nenhum recebimento sem fonte nesta competência."}</div>) : visibleQueue.length ? visibleQueue.map((item) => {
         const status = queueStatus(item);
@@ -292,7 +343,7 @@ export default function ReconciliationOperationPage({ view, statement, bank, sta
         {mode === "artists" ? <ul className="operation-composition-list">{filteredGroups.map((group) => <li key={group.key}><div><strong>{group.nome}</strong><small>{group.lancamentos} {group.lancamentos === 1 ? "lançamento" : "lançamentos"}{group.identificada ? "" : " · sem identificação"}</small></div><b>{moneyFromCents(group.valorCents)}</b></li>)}</ul>
           : <ul className="operation-composition-list">{filteredEntries.map((entry) => <li key={entry.id}><div><strong>{entry.nome_artista || "Artista não identificado"}</strong><small>{entry.data_referencia ?? entry.data.slice(0, 10)} · {entry.origem}{entry.referencia ? ` · ${entry.referencia}` : ""}</small></div><b>{money(entry.valor)}</b></li>)}</ul>}
         {(mode === "artists" ? filteredGroups.length : filteredEntries.length) === 0 && <div className="reconciliation-empty-state"><strong>{search ? "Nenhum resultado para a busca." : "Nenhum lançamento nesta fonte."}</strong><p>{search ? "Tente outra referência ou limpe a busca." : "Importe um arquivo ou adicione um lançamento manual para começar."}</p></div>}
-      </section><details className="operation-activity"><summary><span>Histórico de ações</span><small>Exemplo visual · dados fictícios</small></summary><div className="operation-activity-list">{(demoActivity[row.id_fonte] ?? []).length ? demoActivity[row.id_fonte].map((item, index) => <div className="operation-activity-row" key={`${row.id_fonte}-${index}`}><div><strong>{item.action}</strong><span>{item.actor}</span></div><time dateTime={`${view.period}-${item.day}T${item.time}:00`}>{item.day}/{view.period.slice(5)}/{view.period.slice(0, 4)} · {item.time}</time></div>) : <p>Nenhuma ação de demonstração para esta fonte.</p>}</div></details></> : <section className="operation-manual-panel" aria-label="Adicionar catálogo manualmente"><header className="operation-manual-header"><div><p className="eyebrow">NOVO LANÇAMENTO</p><h3>Adicionar manualmente</h3><p>Fonte: {row.nome_fonte}</p></div><button type="button" className="operation-drawer-close" aria-label="Fechar lançamento manual" disabled={saving} onClick={closeManual}>×</button></header>
+      </section><details className="operation-activity"><summary><span>Trilha de auditoria</span><small>{sourceAudit.length} registros · prévia local</small></summary><div className="operation-activity-list">{sourceAudit.length ? sourceAudit.map((item) => <article className="operation-activity-row" key={item.id}><div><strong>{item.title}</strong><span>{item.actor}{item.demo ? " · demonstração" : ""}</span><p>{item.detail}</p>{item.changes.length > 0 && <dl>{item.changes.map((change) => <div key={change.field}><dt>{change.field}</dt><dd><span>{change.before}</span><span aria-hidden="true">→</span><strong>{change.after}</strong></dd></div>)}</dl>}</div><time dateTime={item.at}>{auditDate.format(new Date(item.at))}</time></article>) : <p>Nenhuma ação registrada nesta fonte durante a sessão.</p>}</div></details></> : <section className="operation-manual-panel" aria-label="Adicionar catálogo manualmente"><header className="operation-manual-header"><div><p className="eyebrow">NOVO LANÇAMENTO</p><h3>Adicionar manualmente</h3><p>Fonte: {row.nome_fonte}</p></div><button type="button" className="operation-drawer-close" aria-label="Fechar lançamento manual" disabled={saving} onClick={closeManual}>×</button></header>
         {pendingManualExit && <div className="operation-manual-warning" role="alert"><strong>Descartar lançamento não confirmado?</strong><p>Os campos preenchidos serão perdidos.</p><div><button ref={manualWarningContinue} type="button" onClick={() => { setPendingManualExit(null); requestAnimationFrame(() => dateInput.current?.focus()); }}>Continuar preenchendo</button><button type="button" onClick={discardManual}>Descartar rascunho</button></div></div>}
         <form onSubmit={saveManual}><div className="source-modal-body source-form-fields"><label>Data<input ref={dateInput} required type="date" value={entryDate} onChange={(event) => setEntryDate(event.target.value)} /></label><label>Artista<select required value={artistId} onChange={(event) => setArtistId(event.target.value)}><option value="">Selecione um artista</option>{artists.map((artist) => <option key={artist.id_artista} value={artist.id_artista}>{artist.nome_artista}{artist.ativa ? "" : " (inativo)"}</option>)}</select></label><label>Valor (R$)<input required inputMode="decimal" value={amount} aria-invalid={Boolean(amount.trim()) && enteredCents === null} aria-describedby="manual-impact" onChange={(event) => setAmount(event.target.value)} placeholder="0,00" /></label>
           <div id="manual-impact" className={`operation-entry-impact${projectedPending !== null && projectedPending < 0n ? " is-over" : ""}`} aria-live="polite" aria-atomic="true"><strong>Impacto deste lançamento</strong>{projectedPending === null ? <p>{amount.trim() ? "Informe um valor positivo com até duas casas decimais." : "Informe um valor para visualizar os novos saldos."}</p> : <><div><span>Conciliado <small>após salvar</small></span><b>{moneyFromCents(projectedConciliated!)}</b></div><div><span>A conciliar <small>após salvar</small></span><b>{moneyFromCents(projectedPending)}</b></div>{projectedPending < 0n && <p className="operation-entry-impact-warning">O lançamento ultrapassa o recebido em {moneyFromCents(-projectedPending)}. Confira o valor antes de confirmar.</p>}</>}</div>
