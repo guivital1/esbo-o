@@ -19,9 +19,11 @@ const monthLabel = (period: string) => { if (!period) return "Selecione a compet
 const banks = { MDB: "Safra", HM: "BTG Pactual" } as const;
 const defaultPeriod = () => { const today = new Date(); const previous = new Date(today.getFullYear(), today.getMonth() - 1, 1); return `${previous.getFullYear()}-${String(previous.getMonth() + 1).padStart(2, "0")}`; };
 
-type Props = { sources: Source[]; sourcesError: string; openRequest?: { statementId: string; transactionIndex?: number; key: number } };
+type Props = { sources: Source[]; sourcesError: string; openRequest?: { statementId: string; transactionIndex?: number; key: number };
+  returnToOperation?: { statementId: string; sourceId: string; filter: "all" | "action" | "mine" | "unidentified" };
+  onReturnToOperation: () => void; onClearReturnContext: () => void; onAllocationSaved: (sourceIds: string[]) => void };
 
-export default function BankStatementsPage({ sources, sourcesError, openRequest }: Props) {
+export default function BankStatementsPage({ sources, sourcesError, openRequest, returnToOperation, onReturnToOperation, onClearReturnContext, onAllocationSaved }: Props) {
   const [mode, setMode] = useState<"history" | "import" | "statement">("history");
   const [history, setHistory] = useState<BankStatementSummary[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
@@ -80,6 +82,7 @@ export default function BankStatementsPage({ sources, sourcesError, openRequest 
   }, [openRequest]);
 
   const openSaved = async (id: string) => {
+    onClearReturnContext();
     setError(""); setFeedback("");
     try {
       const saved = await getBankStatement(id);
@@ -88,12 +91,14 @@ export default function BankStatementsPage({ sources, sourcesError, openRequest 
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Não foi possível abrir o extrato."); }
   };
   const showHistory = () => {
+    onClearReturnContext();
     request.current?.abort(); request.current = null;
     setMode("history"); setStatement(undefined); setActiveIndex(null); setFile(undefined);
     setError(""); setFeedback(""); setVersionConflict("");
     refreshHistory().catch(() => setError("Não foi possível atualizar o histórico."));
   };
   const showImport = () => {
+    onClearReturnContext();
     setMode("import"); setStatement(undefined); setAllocations({}); setFile(undefined);
     setError(""); setFeedback(""); setVersionConflict("");
     if (input.current) input.current.value = "";
@@ -144,6 +149,7 @@ export default function BankStatementsPage({ sources, sourcesError, openRequest 
       const saved = await saveStatementAllocations(statement.id_extrato, statement.rows[index].id_transacao!, allocation.allocations);
       setStatement(saved); setAllocations(saved.allocations ?? {}); setActiveIndex(null);
       setFeedback("Desdobramento salvo no histórico.");
+      onAllocationSaved(allocation.allocations.map((part) => part.id_fonte));
       refreshHistory().catch(() => { /* A resposta contém o estado salvo. */ });
     } catch (reason) { setAllocationError(reason instanceof Error ? reason.message : "Não foi possível salvar o desdobramento."); }
     finally { setSavingAllocation(false); }
@@ -176,7 +182,8 @@ export default function BankStatementsPage({ sources, sourcesError, openRequest 
     {mode === "import" && <><header className="context-bar"><label>Empresa<select value={entity} aria-label="Empresa" onChange={(event) => { setEntity(event.target.value as BankStatementView["entity"]); setVersionConflict(""); }}><option value="MDB">MDB</option><option value="HM">HM</option></select></label><span className="context-divider" /><div><small>Banco</small><strong>{banks[entity]}</strong></div><span className="context-divider" /><label>Competência<input type="month" value={period} required onChange={(event) => { setPeriod(event.target.value); setVersionConflict(""); }} aria-label="Competência" /></label></header>
       <form className="upload-panel" onSubmit={(event) => process(event)}><div className="upload-copy"><span className="upload-icon">↑</span><div><h2>Enviar extrato {banks[entity]}</h2><p>Selecione o PDF de {monthLabel(period)}.</p></div></div><div className="drop-zone" onDragOver={(event: DragEvent) => event.preventDefault()} onDrop={(event: DragEvent) => { event.preventDefault(); selectFile(event.dataTransfer.files[0]); }} onClick={() => input.current?.click()} role="button" tabIndex={0} onKeyDown={(event) => event.key === "Enter" && input.current?.click()}><strong>{file ? file.name : "Selecione ou arraste um PDF"}</strong><span>{file ? "Arquivo pronto para importação" : "Somente arquivos PDF"}</span><input ref={input} type="file" accept="application/pdf,.pdf" onChange={(event: ChangeEvent<HTMLInputElement>) => selectFile(event.target.files?.[0])} /></div><button type="button" className="source-action" onClick={() => selectFile(new File([], "extrato_ficticio_demo.pdf", { type: "application/pdf" }))}>Usar extrato fictício</button>{error && <StatusNotice tone="error">{error}</StatusNotice>}{versionConflict && <div className="version-confirm"><p>A versão atual será preservada no histórico. Confirme se deseja criar uma nova versão deste mês.</p><button type="button" className="source-action" onClick={() => setVersionConflict("")}>Cancelar</button><button type="button" className="process" disabled={processing} onClick={() => process(undefined, versionConflict)}>Criar nova versão</button></div>}{!versionConflict && <button className="process" type="submit" disabled={processing || !period}>{processing ? "Importando extrato…" : "Importar e salvar extrato"}</button>}</form></>}
     {mode === "statement" && statement && <>
-      <button type="button" className="text-button back-history" onClick={showHistory}>← Voltar ao histórico</button>
+      <div className="bank-statement-navigation"><button type="button" className="text-button back-history" onClick={showHistory}>← Voltar ao histórico</button>
+        {returnToOperation && returnToOperation.statementId === statement.id_extrato && <div className="bank-return-context"><span>{returnToOperation.sourceId ? `Fonte: ${sources.find((source) => source.id_fonte === returnToOperation.sourceId)?.nome_fonte ?? "identificada"}` : "Conferência iniciada na conciliação"} · {({ all: "Todas", action: "Precisam de ação", mine: "Minhas pendências", unidentified: "Sem fonte" } as const)[returnToOperation.filter]}</span><button type="button" onClick={onReturnToOperation}>Voltar à Operação <span aria-hidden="true">→</span></button></div>}</div>
       {feedback && <StatusNotice tone="success">{feedback}</StatusNotice>}{error && <StatusNotice tone="error">{error}</StatusNotice>}
       <section className="file-card" aria-label="Extrato salvo"><div className="file-icon">PDF</div><div className="file-meta"><strong>{statement.file_name}</strong><span>{statement.entity} · {statement.bank} · v{statement.version}{statement.is_current ? " · versão atual" : " · versão anterior"}</span>{statement.statement_period_start && statement.statement_period_end && <span>Período: {date.format(asDate(statement.statement_period_start))} — {date.format(asDate(statement.statement_period_end))}</span>}</div><span className={`status ${pending ? "review" : "validated"}`}>{pending ? "Com pendências" : "Validado"}</span><button className="export" type="button" onClick={exportXlsx} disabled={exporting} title="Exporta todos os movimentos salvos, sem os filtros visuais.">{exporting ? "Exportando XLSX…" : "Exportar XLSX"}</button></section>
       <section className="summary" aria-label="Resumo operacional"><article><strong>{money.format(Number(statement.displayed_total))}</strong><span>Valor total</span></article><article><strong>{statement.displayed_count}</strong><span>Transações</span></article><article><strong>{pending}</strong><span>Pendências</span></article></section>

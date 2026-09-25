@@ -33,7 +33,7 @@ export function allocationSummary(row: StatementRow, draft: AllocationDraft[], s
   const amounts = draft.map((item) => parseCents(item.amount));
   const total = amounts.reduce<number>((sum, amount) => sum + (amount ?? 0), 0);
   const ids = draft.map((item) => item.id_fonte);
-  const validSources = ids.every((id) => /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(id) && sources.some((source) => source.id_fonte === id));
+  const validSources = ids.every((id) => Boolean(id) && sources.some((source) => source.id_fonte === id));
   const valid = draft.length > 0 && amounts.every((amount) => amount !== null) && validSources && new Set(ids).size === ids.length && total === original;
   return { original, total, remaining: original - total, valid };
 }

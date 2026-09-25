@@ -106,6 +106,7 @@ export async function saveStatementAllocations(statementId: string, transactionI
   item.review_count = item.rows.filter((row, at) => row.review_required && !item.allocations?.[at]).length;
   item.status = item.review_count ? "review" : "validated";
   item.status_label = item.review_count ? "Com pendências" : "Validado";
+  reconciliations.filter((reconciliation) => reconciliation.bank_statement_id === statementId).forEach(recalculate);
   return copy(item);
 }
 export async function exportSavedBankStatement(_id: string, signal?: AbortSignal): Promise<void> {
@@ -123,6 +124,7 @@ export async function getReconciliations(entity?: string, period?: string, signa
 export async function getReconciliation(id: string, signal?: AbortSignal): Promise<ReconciliationView> {
   aborted(signal); const item = reconciliations.find((row) => row.id_conciliacao === id);
   if (!item) throw new Error("Conciliação demonstrativa não encontrada.");
+  recalculate(item);
   return copy(item);
 }
 export async function createReconciliation(bankStatementId: string): Promise<ReconciliationView> {
@@ -150,6 +152,27 @@ export async function createReconciliation(bankStatementId: string): Promise<Rec
 function recalculate(item: ReconciliationView) {
   const cents = (value: string) => Math.round(Number(value) * 100);
   const money = (value: number) => (value / 100).toFixed(2);
+  const statement = statements.find((row) => row.id_extrato === item.bank_statement_id);
+  if (statement) {
+    const receivedBySource = new Map<string, number>();
+    statement.rows.forEach((bankRow, index) => {
+      const allocation = statement.allocations?.[index];
+      if (allocation) allocation.allocations.forEach((part) =>
+        receivedBySource.set(part.id_fonte, (receivedBySource.get(part.id_fonte) ?? 0) + part.amount_cents));
+      else if (bankRow.id_fonte) receivedBySource.set(bankRow.id_fonte,
+        (receivedBySource.get(bankRow.id_fonte) ?? 0) + cents(bankRow.amount));
+    });
+    for (const sourceId of receivedBySource.keys()) {
+      if (item.rows.some((row) => row.id_fonte === sourceId)) continue;
+      const source = sources.find((candidate) => candidate.id_fonte === sourceId);
+      if (source) item.rows.push({ id_fonte: source.id_fonte, numero_fonte: source.numero_fonte, nome_fonte: source.nome_fonte,
+        recebido: "0.00", catalogo_bruto: "0.00", saldo_bruto: "0.00", entries: [] });
+    }
+    item.rows.forEach((row) => { row.recebido = money(receivedBySource.get(row.id_fonte) ?? 0); });
+    const pendingRows = statement.rows.filter((bankRow, index) => bankRow.review_required && !statement.allocations?.[index]);
+    item.pending_bank_count = pendingRows.length;
+    item.pending_bank_amount = money(pendingRows.reduce((sum, bankRow) => sum + cents(bankRow.amount), 0));
+  }
   let catalog = 0;
   for (const row of item.rows) {
     const rowCatalog = row.entries.reduce((sum, entry) => sum + cents(entry.valor), 0);

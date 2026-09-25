@@ -11,6 +11,8 @@ import type { SessionAction, SessionNote } from "./sessionNotes";
 
 type Area = "bank" | "sources" | ReconciliationSection;
 type NavigationTarget = { area: Area; sourceId?: string; history?: HistorySearchTarget; bankStatementId?: string; transactionIndex?: number; resetBank?: boolean };
+type OperationReturnContext = { statementId: string; entity: "HM" | "MDB"; period: string; sourceId: string;
+  filter: "all" | "action" | "mine" | "unidentified"; query: string };
 const initialPeriod = () => {
   const now = new Date(); const previous = new Date(now.getFullYear(), now.getMonth() - 1, 1);
   return `${previous.getFullYear()}-${String(previous.getMonth() + 1).padStart(2, "0")}`;
@@ -46,6 +48,7 @@ export default function App({ spotlightOpen, onCloseSpotlight }: Props) {
   const navigationReturnFocus = useRef<HTMLElement>(null);
   const [bankHistoryRequest, setBankHistoryRequest] = useState(0);
   const [bankOpenRequest, setBankOpenRequest] = useState<{ statementId: string; transactionIndex?: number; key: number }>();
+  const [bankReturnContext, setBankReturnContext] = useState<OperationReturnContext>();
   const [automationPreviewOpen, setAutomationPreviewOpen] = useState(false);
   const [sources, setSources] = useState<Source[]>([]);
   const [sourcesLoading, setSourcesLoading] = useState(true);
@@ -69,6 +72,11 @@ export default function App({ spotlightOpen, onCloseSpotlight }: Props) {
     getSources().then(setSources).catch(() => { /* POST já contém a fonte salva. */ });
   };
   const commitNavigation = (target: NavigationTarget) => {
+    if (target.area === "bank" && target.bankStatementId && (area === "overview" || area === "operation")) {
+      setBankReturnContext({ statementId: target.bankStatementId, entity: reconciliationEntity, period: reconciliationPeriod,
+        sourceId: area === "operation" ? reconciliationSourceId : "", filter: area === "operation" ? operationFilter : "all",
+        query: area === "operation" ? operationQuery : "" });
+    } else if (target.area !== "bank" || target.resetBank) setBankReturnContext(undefined);
     setArea(target.area);
     setSourceOpenRequest(target.sourceId ? { id: target.sourceId, key: Date.now() } : undefined);
     setHistoryOpenRequest(target.history ? { ...target.history, key: Date.now() } : undefined);
@@ -108,6 +116,21 @@ export default function App({ spotlightOpen, onCloseSpotlight }: Props) {
   const navigateFromSpotlight = (next: SearchArea, sourceId?: string, history?: HistorySearchTarget) => {
     navigate({ area: next, sourceId, history });
   };
+  const returnToOperation = () => {
+    if (!bankReturnContext) return;
+    setReconciliationEntity(bankReturnContext.entity);
+    setReconciliationPeriod(bankReturnContext.period);
+    setReconciliationStatementId(bankReturnContext.statementId);
+    setReconciliationSourceId(bankReturnContext.sourceId);
+    setOperationFilter(bankReturnContext.filter);
+    setOperationQuery(bankReturnContext.query);
+    setArea("operation");
+    setBankReturnContext(undefined);
+    requestAnimationFrame(() => {
+      if (!document.querySelector(".operation-drawer"))
+        document.querySelector<HTMLButtonElement>(".operation-list-filters .is-active")?.focus();
+    });
+  };
   return <div className={`shell ${area === "overview" ? "shell--overview" : area === "import" ? "shell--import" : area === "sources" ? "shell--sources" : ""}`}>
     <aside className="sidebar"><div className="brand"><img className="brand-mark" src="/muv-logo.png" alt="" /><strong>MUV Royalties</strong></div>
       <nav aria-label="Navegação principal"><span className="nav-section">Importações</span>
@@ -129,7 +152,11 @@ export default function App({ spotlightOpen, onCloseSpotlight }: Props) {
       </nav>
       </aside>
     <main className={`content ${area === "overview" ? "content--overview" : area === "import" ? "content--import" : area === "sources" ? "content--sources" : ""}`}>
-      <div hidden={area !== "bank"}><BankStatementsPage key={bankHistoryRequest} sources={sources} sourcesError={sourcesError} openRequest={bankOpenRequest} /></div>
+      <div hidden={area !== "bank"}><BankStatementsPage key={bankHistoryRequest} sources={sources} sourcesError={sourcesError} openRequest={bankOpenRequest}
+        returnToOperation={bankReturnContext && { statementId: bankReturnContext.statementId, sourceId: bankReturnContext.sourceId, filter: bankReturnContext.filter }}
+        onReturnToOperation={returnToOperation} onClearReturnContext={() => setBankReturnContext(undefined)}
+        onAllocationSaved={(sourceIds) => setBankReturnContext((current) => current ? { ...current,
+          sourceId: sourceIds.length === 1 ? sourceIds[0] : current.sourceId && sourceIds.includes(current.sourceId) ? current.sourceId : "" } : current)} /></div>
       {area === "sources" && <SourcesPage sources={sources} loading={sourcesLoading} error={sourcesError} openRequest={sourceOpenRequest} onSourceCreated={sourceCreated} onSourceSaved={sourceSaved} />}
       {(area === "overview" || area === "operation" || area === "import") &&
         <ReconciliationPage section={area} onSectionChange={(section) => navigate({ area: section })} onReviewBankStatement={(id, transactionIndex) => navigate({ area: "bank", bankStatementId: id, transactionIndex })} entity={reconciliationEntity} onEntityChange={setReconciliationEntity} period={reconciliationPeriod} onPeriodChange={setReconciliationPeriod} statementId={reconciliationStatementId} onStatementChange={setReconciliationStatementId} selectedSourceId={reconciliationSourceId} onSelectedSourceChange={setReconciliationSourceId} operationFilter={operationFilter} onOperationFilterChange={setOperationFilter} operationQuery={operationQuery} onOperationQueryChange={setOperationQuery} onOperationDraftDirtyChange={setOperationDraftDirty} sessionNotes={sessionNotes} onAddSessionNote={(note) => setSessionNotes((current) => [note, ...current])} sessionActions={sessionActions} onAddSessionAction={(action) => setSessionActions((current) => [action, ...current])} sources={sources} sourcesError={sourcesError} historyOpenRequest={historyOpenRequest} />}

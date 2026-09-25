@@ -117,8 +117,9 @@ export default function ReconciliationOperationPage({ view, statement, bank, sta
   const nextSource = queue[queue.findIndex((item) => item.id_fonte === sourceId) + 1];
   const entries = row?.entries ?? [];
   const sourceReceipts = statement?.rows.flatMap((item, index) => {
-    const allocation = statement.allocations?.[index]?.allocations.find((part) => part.id_fonte === sourceId);
-    if (item.id_fonte !== sourceId && !allocation) return [];
+    const parts = statement.allocations?.[index]?.allocations;
+    const allocation = parts?.find((part) => part.id_fonte === sourceId);
+    if (parts ? !allocation : item.id_fonte !== sourceId) return [];
     return [{ key: item.id_transacao ?? String(index), date: item.date, description: item.description,
       amount: allocation ? moneyFromCents(BigInt(allocation.amount_cents)) : money(item.amount) }];
   }) ?? [];
