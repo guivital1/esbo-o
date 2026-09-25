@@ -11,21 +11,34 @@ export default function BankColumnFilters({ filters, onChange, sourceOptions }: 
   const [position, setPosition] = useState({ left: 0, top: 0 });
   const [sourceSearch, setSourceSearch] = useState("");
   const panel = useRef<HTMLDivElement>(null);
+  const triggers = useRef<Record<Column, HTMLButtonElement | null>>({ date: null, description: null, source: null, value: null });
 
   useEffect(() => {
     if (!open) return;
+    panel.current?.querySelector<HTMLElement>("input, select, button")?.focus();
+    const restoreTrigger = () => { const column = open; setOpen(null); requestAnimationFrame(() => triggers.current[column]?.focus()); };
     const outside = (event: PointerEvent) => {
       const target = event.target as Element;
       if (!panel.current?.contains(target) && !target.closest("[data-column-filter-trigger]")) setOpen(null);
     };
-    const keydown = (event: KeyboardEvent) => { if (event.key === "Escape") setOpen(null); };
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { event.preventDefault(); restoreTrigger(); return; }
+      if (event.key !== "Tab" || !panel.current) return;
+      const controls = [...panel.current.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled), select:not(:disabled)")]
+        .filter((element) => element.getClientRects().length > 0);
+      if (!controls.length) return;
+      if (event.shiftKey && (!panel.current.contains(document.activeElement) || document.activeElement === controls[0])) {
+        event.preventDefault(); controls.at(-1)?.focus();
+      } else if (!event.shiftKey && (!panel.current.contains(document.activeElement) || document.activeElement === controls.at(-1))) {
+        event.preventDefault(); controls[0].focus();
+      }
+    };
     const dismiss = (event: Event) => { if (!panel.current?.contains(event.target as Node)) setOpen(null); };
     document.addEventListener("pointerdown", outside);
     document.addEventListener("keydown", keydown);
     window.addEventListener("resize", dismiss);
-    window.addEventListener("scroll", dismiss, true);
     return () => { document.removeEventListener("pointerdown", outside); document.removeEventListener("keydown", keydown);
-      window.removeEventListener("resize", dismiss); window.removeEventListener("scroll", dismiss, true); };
+      window.removeEventListener("resize", dismiss); };
   }, [open]);
 
   const active: Record<Column, boolean> = {
@@ -34,7 +47,7 @@ export default function BankColumnFilters({ filters, onChange, sourceOptions }: 
     source: filters.sourceNames !== null,
     value: Boolean(filters.valueMin || filters.valueMax || filters.valueOrder !== "none"),
   };
-  const button = (column: Column) => <button type="button" data-column-filter-trigger="" className={`column-filter-trigger ${active[column] ? "is-filtered" : ""}`}
+  const button = (column: Column) => <button ref={(node) => { triggers.current[column] = node; }} type="button" data-column-filter-trigger="" className={`column-filter-trigger ${active[column] ? "is-filtered" : ""}`}
     aria-label={`Filtrar ${labels[column]}`} aria-expanded={open === column} onClick={(event) => {
       if (open === column) { setOpen(null); return; }
       const rect = event.currentTarget.getBoundingClientRect();
@@ -53,13 +66,13 @@ export default function BankColumnFilters({ filters, onChange, sourceOptions }: 
   return <><tr className="bank-filter-head">
     {(["date", "description", "source", "value"] as Column[]).map((column) => <th key={column} className={column === "value" ? "amount" : ""}><span>{labels[column]}</span>{button(column)}</th>)}
   </tr>
-    {open && createPortal(<div ref={panel} className="column-filter-panel" role="group" aria-label={`Filtro de ${labels[open]}`} style={position}>
+    {open && createPortal(<div ref={panel} className="column-filter-panel" role="dialog" aria-modal="true" aria-label={`Filtro de ${labels[open]}`} style={position}>
       <strong className="filter-title">{labels[open]}</strong>
       {open === "date" && <div className="filter-fields"><label>De<input type="date" aria-label="Data inicial" value={filters.dateFrom} onChange={(event) => onChange({ dateFrom: event.target.value })} /></label><label>Até<input type="date" aria-label="Data final" value={filters.dateTo} onChange={(event) => onChange({ dateTo: event.target.value })} /></label></div>}
       {open === "description" && <div className="filter-fields"><label>Contém<input type="search" aria-label="Buscar descrição" value={filters.description} onChange={(event) => onChange({ description: event.target.value })} placeholder="Buscar na descrição" /></label></div>}
       {open === "source" && <><input type="search" aria-label="Buscar no filtro de fontes" value={sourceSearch} onChange={(event) => setSourceSearch(event.target.value)} placeholder="Buscar fonte" /><div className="filter-quick-actions"><button type="button" onClick={() => onChange({ sourceNames: null })}>Selecionar tudo</button><button type="button" onClick={() => onChange({ sourceNames: [] })}>Desmarcar tudo</button></div><div className="source-filter-options">{found.map((name) => <label key={name}><input type="checkbox" checked={selected.has(name)} onChange={() => toggleSource(name)} />{name}</label>)}{found.length === 0 && <p>Nenhuma fonte encontrada.</p>}</div></>}
       {open === "value" && <div className="filter-fields"><label>Mínimo (R$)<input type="number" step="0.01" aria-label="Valor mínimo" value={filters.valueMin} onChange={(event) => onChange({ valueMin: event.target.value })} /></label><label>Máximo (R$)<input type="number" step="0.01" aria-label="Valor máximo" value={filters.valueMax} onChange={(event) => onChange({ valueMax: event.target.value })} /></label><label>Ordenar<select aria-label="Ordenar valor" value={filters.valueOrder} onChange={(event) => onChange({ valueOrder: event.target.value as BankFilters["valueOrder"] })}><option value="none">Sem ordenação</option><option value="asc">Crescente</option><option value="desc">Decrescente</option></select></label></div>}
-      <div className="filter-footer"><button type="button" onClick={() => { onChange(open === "date" ? { dateFrom: "", dateTo: "" } : open === "description" ? { description: "" } : open === "source" ? { sourceNames: null } : { valueMin: "", valueMax: "", valueOrder: "none" }); }}>Limpar coluna</button><button type="button" onClick={() => setOpen(null)}>Concluir</button></div>
+      <div className="filter-footer"><button type="button" onClick={() => { onChange(open === "date" ? { dateFrom: "", dateTo: "" } : open === "description" ? { description: "" } : open === "source" ? { sourceNames: null } : { valueMin: "", valueMax: "", valueOrder: "none" }); }}>Limpar coluna</button><button type="button" onClick={() => { const column = open; setOpen(null); requestAnimationFrame(() => triggers.current[column]?.focus()); }}>Concluir</button></div>
     </div>, document.body)}
   </>;
 }

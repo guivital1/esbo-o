@@ -5,6 +5,8 @@ import type { IngestionBatch, IngestionBatchDetails, ReconciliationView } from "
 import { cents, money, moneyFromCents, monthLabel } from "./reconciliationFormat";
 import type { HistorySearchTarget } from "./Spotlight";
 import StatusNotice from "./StatusNotice";
+import { useRovingList } from "./useRovingList";
+import { onTabArrowKey } from "./keyboardTabs";
 
 type HistoryBatch = IngestionBatch & { reconciliationId: string; period: string };
 type SelectedBatch = { id: string; reconciliationId: string };
@@ -27,6 +29,7 @@ export default function ReconciliationImportPage({ view, entity, tab, onTabChang
   const [error, setError] = useState("");
   const [historyLoading, setHistoryLoading] = useState(true);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const detailPanelRef = useRef<HTMLElement>(null);
   const fileButtonsRef = useRef(new Map<string, HTMLButtonElement>());
   const closeDetails = () => {
     const fileKey = selectedBatch && `${selectedBatch.reconciliationId}:${selectedBatch.id}`;
@@ -39,7 +42,18 @@ export default function ReconciliationImportPage({ view, entity, tab, onTabChang
   useEffect(() => {
     if (!selectedBatch || tab !== "history") return;
     closeButtonRef.current?.focus();
-    const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") closeDetails(); };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { event.preventDefault(); closeDetails(); return; }
+      if (event.key !== "Tab" || !detailPanelRef.current) return;
+      const controls = [...detailPanelRef.current.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled)")]
+        .filter((element) => element.getClientRects().length > 0);
+      if (!controls.length) return;
+      if (event.shiftKey && (!detailPanelRef.current.contains(document.activeElement) || document.activeElement === controls[0])) {
+        event.preventDefault(); controls.at(-1)?.focus();
+      } else if (!event.shiftKey && (!detailPanelRef.current.contains(document.activeElement) || document.activeElement === controls.at(-1))) {
+        event.preventDefault(); controls[0].focus();
+      }
+    };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [selectedBatch, tab]);
@@ -106,6 +120,9 @@ export default function ReconciliationImportPage({ view, entity, tab, onTabChang
       term ? items.filter((batch) => (batch.arquivo || "Lançamento manual").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR").includes(term)) : items,
     ] as [string, HistoryBatch[]]).filter(([, items]) => items.length);
   }, [months, periodFilter, fileQuery]);
+  const monthKeyboard = useRovingList(visibleMonths.map(([period]) => period), expandedPeriod ?? undefined);
+  const fileKeyboard = useRovingList(visibleMonths.flatMap(([period, items]) => period === expandedPeriod
+    ? items.map((batch) => `${batch.reconciliationId}:${batch.id}`) : []));
 
   const fileSequence = useMemo(() => {
     const sequence = new Map<string, number>();
@@ -135,7 +152,7 @@ export default function ReconciliationImportPage({ view, entity, tab, onTabChang
   const selectedHistoryBatch = batches.find((batch) => batch.id === selectedBatch?.id && batch.reconciliationId === selectedBatch.reconciliationId);
 
   return <div className="reconciliation-import-page" aria-label="Importar dados da conciliação">
-    <div className="import-page-tabs" role="group" aria-label="Áreas de importação"><button type="button" className={tab === "new" ? "is-active" : ""} onClick={() => onTabChange("new")}>Nova importação</button><button type="button" className={tab === "history" ? "is-active" : ""} onClick={() => onTabChange("history")}>Histórico</button></div>
+    <div className="import-page-tabs" role="group" aria-label="Áreas de importação" onKeyDown={onTabArrowKey}><button type="button" className={tab === "new" ? "is-active" : ""} onClick={() => onTabChange("new")}>Nova importação</button><button type="button" className={tab === "history" ? "is-active" : ""} onClick={() => onTabChange("history")}>Histórico</button></div>
     {tab === "new" && (view ? <CatalogImportWorkflow key={view.id_conciliacao} reconciliationId={view.id_conciliacao} onOpenSource={onOpenSource} onPreviewOpenChange={onPreviewOpenChange} onConfirmed={(batchId, saved) => {
       onConfirmed(saved); setSelectedBatch({ id: batchId, reconciliationId: saved.id_conciliacao });
       setExpandedPeriod(saved.period); setRevision((current) => current + 1); setError("");
@@ -143,21 +160,21 @@ export default function ReconciliationImportPage({ view, entity, tab, onTabChang
     {error && <StatusNotice tone="error">{error}</StatusNotice>}
     {tab === "history" && <div className="import-history-area"><section className="table-section import-history"><div className="table-toolbar"><p>{historyLoading ? "Carregando histórico…" : periodFilter || fileQuery ? `${visibleMonths.length} ${visibleMonths.length === 1 ? "competência encontrada" : "competências encontradas"}` : `${months.length} ${months.length === 1 ? "competência" : "competências"} com importações`}</p>
       {!historyLoading && months.length > 0 && <div className="import-history-filters"><select aria-label="Filtrar competência do histórico" value={periodFilter} onChange={(event) => { setPeriodFilter(event.target.value); setExpandedPeriod(null); setSelectedBatch(undefined); }}><option value="">Todas as competências</option>{months.map(([period]) => <option key={period} value={period}>{monthLabel(period)}</option>)}</select><input type="search" aria-label="Buscar arquivo no histórico" placeholder="Buscar arquivo" value={fileQuery} onChange={(event) => { setFileQuery(event.target.value); setExpandedPeriod(null); setSelectedBatch(undefined); }} /></div>}</div>
-      {historyLoading ? <StatusNotice tone="loading" className="import-history-status">Carregando importações…</StatusNotice> : visibleMonths.length ? <div className="import-month-list">{visibleMonths.map(([period, items]) => {
+      {historyLoading ? <StatusNotice tone="loading" className="import-history-status">Carregando importações…</StatusNotice> : visibleMonths.length ? <div className="import-month-list" onKeyDown={monthKeyboard.onKeyDown}>{visibleMonths.map(([period, items]) => {
         const isOpen = expandedPeriod === period;
         const monthItems = months.find(([month]) => month === period)?.[1] ?? items;
         const total = monthItems.reduce((sum, batch) => sum + cents(batch.valor_total), 0n);
         const label = monthLabel(period);
         return <section className={`import-month${isOpen ? " is-open" : ""}`} key={period}>
-          <button type="button" className="import-month-toggle" aria-expanded={isOpen} aria-controls={`import-month-${period}`} onClick={() => { setExpandedPeriod(isOpen ? "" : period); setSelectedBatch(undefined); }}>
+          <button type="button" className="import-month-toggle" {...monthKeyboard.itemProps(period)} aria-expanded={isOpen} aria-controls={`import-month-${period}`} onClick={() => { setExpandedPeriod(isOpen ? "" : period); setSelectedBatch(undefined); }}>
             <span className="import-month-title"><span className="import-month-chevron" aria-hidden="true">⌄</span><strong>{label.charAt(0).toLocaleUpperCase("pt-BR") + label.slice(1)}</strong><small>{items.length}{items.length < monthItems.length ? ` de ${monthItems.length}` : ""} {monthItems.length === 1 ? "importação" : "importações"}{isOpen && sourceCountsByPeriod[period] !== undefined ? ` · ${sourceCountsByPeriod[period]} ${sourceCountsByPeriod[period] === 1 ? "fonte pagadora" : "fontes pagadoras"}` : ""}</small></span>
             <span className="import-month-total">{moneyFromCents(total)}</span>
           </button>
-          {isOpen && <div id={`import-month-${period}`} className="table-wrap"><table className="batch-table"><thead><tr><th>Data</th><th>Arquivo</th><th className="amount">Valor</th></tr></thead><tbody>{items.map((batch) => <tr key={`${batch.reconciliationId}-${batch.id}`} className={selectedBatch?.id === batch.id && selectedBatch.reconciliationId === batch.reconciliationId ? "is-selected" : ""}><td>{new Date(batch.importado_em).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })}</td><td><div className="import-file-cell"><button type="button" className="batch-open" ref={(node) => { const key = `${batch.reconciliationId}:${batch.id}`; if (node) fileButtonsRef.current.set(key, node); else fileButtonsRef.current.delete(key); }} onClick={() => setSelectedBatch({ id: batch.id, reconciliationId: batch.reconciliationId })}>{batch.arquivo || "Lançamento manual"}</button><small>Envio {fileSequence.get(`${batch.reconciliationId}:${batch.id}`)} · {new Date(batch.importado_em).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" })}</small></div></td><td className="amount">{money(batch.valor_total)}</td></tr>)}</tbody></table></div>}
+          {isOpen && <div id={`import-month-${period}`} className="table-wrap"><table className="batch-table"><thead><tr><th>Data</th><th>Arquivo</th><th className="amount">Valor</th></tr></thead><tbody onKeyDown={fileKeyboard.onKeyDown}>{items.map((batch) => <tr key={`${batch.reconciliationId}-${batch.id}`} className={selectedBatch?.id === batch.id && selectedBatch.reconciliationId === batch.reconciliationId ? "is-selected" : ""}><td>{new Date(batch.importado_em).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })}</td><td><div className="import-file-cell"><button type="button" className="batch-open" {...fileKeyboard.itemProps(`${batch.reconciliationId}:${batch.id}`)} ref={(node) => { const key = `${batch.reconciliationId}:${batch.id}`; if (node) fileButtonsRef.current.set(key, node); else fileButtonsRef.current.delete(key); }} onClick={() => setSelectedBatch({ id: batch.id, reconciliationId: batch.reconciliationId })}>{batch.arquivo || "Lançamento manual"}</button><small>Envio {fileSequence.get(`${batch.reconciliationId}:${batch.id}`)} · {new Date(batch.importado_em).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" })}</small></div></td><td className="amount">{money(batch.valor_total)}</td></tr>)}</tbody></table></div>}
         </section>;
       })}</div> : !error && <div className="reconciliation-empty-state"><strong>{months.length ? "Nenhum arquivo corresponde aos filtros." : `Nenhuma importação para ${entity}.`}</strong><p>{months.length ? "Ajuste a competência ou a busca pelo nome do arquivo." : "Os meses aparecem aqui após a primeira importação em cada competência."}</p><button type="button" className={`import-empty-action${months.length ? "" : " is-primary"}`} onClick={() => { if (months.length) { setPeriodFilter(""); setFileQuery(""); setExpandedPeriod(null); } else onTabChange("new"); }}>{months.length ? "Limpar filtros" : "Nova importação"}</button></div>}
     </section>
-    {selectedBatch && <aside className="batch-details import-detail-panel" aria-label="Detalhes da importação"><div className="batch-details-heading"><div><p className="eyebrow">{selectedHistoryBatch ? monthLabel(selectedHistoryBatch.period) : "Importação"}</p><h2>{details?.arquivo || selectedHistoryBatch?.arquivo || "Importação"}</h2>{selectedHistoryBatch && <small>{new Date(selectedHistoryBatch.importado_em).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Sao_Paulo" })}</small>}</div><button ref={closeButtonRef} type="button" className="import-detail-close" aria-label="Fechar detalhes da importação" onClick={closeDetails}>×</button></div>
+    {selectedBatch && <aside ref={detailPanelRef} className="batch-details import-detail-panel" role="dialog" aria-modal="true" aria-label="Detalhes da importação"><div className="batch-details-heading"><div><p className="eyebrow">{selectedHistoryBatch ? monthLabel(selectedHistoryBatch.period) : "Importação"}</p><h2>{details?.arquivo || selectedHistoryBatch?.arquivo || "Importação"}</h2>{selectedHistoryBatch && <small>{new Date(selectedHistoryBatch.importado_em).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Sao_Paulo" })}</small>}</div><button ref={closeButtonRef} type="button" className="import-detail-close" aria-label="Fechar detalhes da importação" onClick={closeDetails}>×</button></div>
       {details ? <><div className="import-detail-total"><span>Valor importado</span><strong>{money(details.valor_total)}</strong></div>
         <div className="import-detail-entries"><h3>Lançamentos por fonte pagadora</h3>{sourceGroups.length ? sourceGroups.map((group) => {
           const isOpen = expandedSourceId === group.id;

@@ -9,6 +9,8 @@ export default function SourceModal({ title, onClose, children, busy = false, in
   const dialog = useRef<HTMLElement>(null);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
+  const busyRef = useRef(busy);
+  busyRef.current = busy;
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -16,9 +18,10 @@ export default function SourceModal({ title, onClose, children, busy = false, in
     document.body.style.overflow = "hidden";
     (initialFocus && dialog.current?.querySelector<HTMLElement>(initialFocus) || closeButton.current)?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") { event.preventDefault(); closeRef.current(); }
+      if (event.key === "Escape" && !busyRef.current) { event.preventDefault(); closeRef.current(); return; }
       if (event.key !== "Tab" || !dialog.current) return;
-      const focusable = [...dialog.current.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled), select:not(:disabled)")];
+      const focusable = [...dialog.current.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href]")]
+        .filter((element) => element.getClientRects().length > 0);
       if (!focusable.length) return;
       const first = focusable[0], last = focusable[focusable.length - 1];
       if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }

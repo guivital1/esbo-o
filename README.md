@@ -28,6 +28,7 @@ Abra o endereço indicado pelo Vite, normalmente `http://localhost:5173/`. No Wi
 - **Proteção da prévia:** na Nova importação, se a prévia fictícia do CSV estiver aberta, trocar empresa, competência ou extrato/versão exige escolher entre continuar conferindo ou descartar a prévia e mudar o contexto. Nenhum dado é gravado nessa etapa; a confirmação da importação continua separada.
 - **Conciliação › Importar dados:** fluxo de seleção, prévia e confirmação fictícia de CSV; Histórico agrupado por **empresa e competência**, com filtro compacto de competência e busca pelo nome do arquivo. Cada mês se expande para mostrar data, arquivo, envio, valor e quantidade de **fontes pagadoras únicas** nos lotes daquele mês; o total e a quantidade de fontes do mês permanecem integrais mesmo ao filtrar arquivos. Estados vazios oferecem **Nova importação** quando não há lotes e **Limpar filtros** quando a busca não encontra arquivos. Um clique no arquivo abre seu detalhe em painel lateral. Ao fechar o detalhe, inclusive quando aberto pela busca rápida, o mês continua expandido e o foco retorna ao arquivo na lista.
 - **Busca rápida:** botão no topo ou atalho `⌘K` no Mac e `Ctrl+K` no Windows. Permite navegar pelas páginas, abrir diretamente uma fonte pagadora fictícia pelo nome, código ou ID, localizar competências com importações por mês/ano e encontrar arquivos importados. Selecionar uma competência abre o mês no Histórico; selecionar um arquivo abre também seu painel de detalhes.
+- **Navegação por teclado:** o link “Ir para o conteúdo” salta a barra e a sidebar. O botão **Atalhos** ou a tecla `?` abre um guia. `Tab` e `Shift+Tab` percorrem controles; em tabelas e listas com ações, `↑`/`↓` e `Home`/`End` percorrem linhas; `←`/`→` alternam abas e filtros; `Enter` ou `Espaço` ativam botões; `Esc` fecha painéis e diálogos. Os filtros de coluna do extrato recebem foco ao abrir e o devolvem ao botão ao fechar. Campos de texto e seletores mantêm os atalhos nativos. Isto é navegação operacional por teclado, não edição de células como em uma planilha.
 - **Automação:** apenas uma entrada de navegação conceitual. O outro aplicativo não foi integrado.
 - **Perfil:** identificação visual de Guilherme Vital, Estagiário de Backoffice; não existe autenticação real.
 - **Feedback visual:** carregamento, sucesso e erro usam um padrão discreto de avisos nas telas de importação, conciliação e fontes pagadoras. Não há notificações persistidas em servidor.
@@ -64,6 +65,7 @@ No detalhe de um lote importado, os lançamentos aparecem primeiro **agrupados p
 | `royalties_ops/web/src/BankStatementsPage.tsx` | Histórico e importação demonstrativa de extratos |
 | `royalties_ops/web/src/SourcesPage.tsx` | Fontes pagadoras |
 | `royalties_ops/web/src/styles.css` | Estilos e refinamentos visuais |
+| `royalties_ops/web/src/useRovingList.ts`, `keyboardTabs.ts`, `KeyboardHelp.tsx` | Navegação de linhas e abas por teclado e guia de atalhos |
 | `royalties_ops/web/src/api.ts`, `mockData.ts`, `types.ts` | Adaptador local, dados fictícios e contratos de tipos |
 
 ## Orientações para o Codex na próxima sessão

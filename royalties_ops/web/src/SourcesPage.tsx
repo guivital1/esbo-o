@@ -9,6 +9,7 @@ import CreateSourceModal from "./CreateSourceModal";
 import EditSourceModal from "./EditSourceModal";
 import AddIdentificationModal from "./AddIdentificationModal";
 import StatusNotice from "./StatusNotice";
+import { onTabArrowKey } from "./keyboardTabs";
 
 type Props = { sources: Source[]; loading: boolean; error: string; openRequest?: { id: string; key: number };
   onSourceCreated: (source: Source) => void; onSourceSaved: (source: Source) => void };
@@ -65,7 +66,7 @@ export default function SourcesPage({ sources, loading, error, openRequest, onSo
 
   return <div className="sources-page"><header className="sources-appbar"><h1>Fontes pagadoras</h1><button type="button" className="process" onClick={() => { setSuccess(""); setCreating(true); }}>Nova fonte <span aria-hidden="true">+</span></button></header>
     {success && <StatusNotice tone="success" className="sources-notice">{success}</StatusNotice>}
-    <div className="source-tabs" role="tablist" aria-label="Seções de fontes pagadoras"><button type="button" role="tab" aria-selected={section === "catalog"} onClick={() => setSection("catalog")}>Cadastro</button><button type="button" role="tab" aria-selected={section === "bank"} onClick={() => setSection("bank")}>Identificação bancária</button></div>
+    <div className="source-tabs" role="tablist" aria-label="Seções de fontes pagadoras" onKeyDown={onTabArrowKey}><button type="button" role="tab" tabIndex={section === "catalog" ? 0 : -1} aria-selected={section === "catalog"} onClick={() => setSection("catalog")}>Cadastro</button><button type="button" role="tab" tabIndex={section === "bank" ? 0 : -1} aria-selected={section === "bank"} onClick={() => setSection("bank")}>Identificação bancária</button></div>
     {section === "catalog" ? <><section className="table-section"><div className="table-toolbar"><span className="sources-result-count">{visible.length} de {sources.length} fontes</span><div className="source-filters"><label className="search"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar nome ou código" aria-label="Buscar fontes" /></label><label className="source-filter-label">Status<select aria-label="Filtrar status" value={status} onChange={(event) => setStatus(event.target.value as SourceStatusFilter)}><option value="all">Todas</option><option value="active">Ativas</option><option value="inactive">Inativas</option></select></label></div></div>
       {loading ? <StatusNotice tone="loading" className="sources-table-notice">Carregando fontes…</StatusNotice> : error ? <StatusNotice tone="error" className="sources-table-notice">{error}</StatusNotice> : <SourcesTable sources={visible} onDetails={openDetails} />}</section>
       {selected && dialog === "details" && <SourceDetails source={selected} identifications={identificationsForSource(identifications, selected.id_fonte)} loading={identificationsLoading} error={identificationsError} onClose={() => setDialog(null)} onEdit={() => setDialog("edit")} onToggle={toggleSource} onAddIdentification={() => setDialog("identification")} actionBusy={actionBusy} actionError={actionError} />}

@@ -151,7 +151,7 @@ export default function App({ spotlightOpen, onCloseSpotlight }: Props) {
         </div>}
       </nav>
       </aside>
-    <main className={`content ${area === "overview" ? "content--overview" : area === "import" ? "content--import" : area === "sources" ? "content--sources" : ""}`}>
+    <main id="main-content" tabIndex={-1} className={`content ${area === "overview" ? "content--overview" : area === "import" ? "content--import" : area === "sources" ? "content--sources" : ""}`}>
       <div hidden={area !== "bank"}><BankStatementsPage key={bankHistoryRequest} sources={sources} sourcesError={sourcesError} openRequest={bankOpenRequest}
         returnToOperation={bankReturnContext && { statementId: bankReturnContext.statementId, sourceId: bankReturnContext.sourceId, filter: bankReturnContext.filter }}
         onReturnToOperation={returnToOperation} onClearReturnContext={() => setBankReturnContext(undefined)}

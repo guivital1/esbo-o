@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { BankStatementView, IngestionBatch, ReconciliationRow, ReconciliationView } from "./types";
 import type { SessionAction, SessionNote } from "./sessionNotes";
 import { cents, money, moneyFromCents, percent, sourceNumber } from "./reconciliationFormat";
+import { useRovingList } from "./useRovingList";
+import { onTabArrowKey } from "./keyboardTabs";
 
 type Props = { view?: ReconciliationView; statement?: BankStatementView; batches: IngestionBatch[];
   sessionNotes: SessionNote[]; sessionActions: SessionAction[]; onAddSessionNote: (note: SessionNote) => void;
@@ -65,6 +67,7 @@ export default function ReconciliationOverviewPage({ view, statement, batches, s
     (filter === "all" || cents(row.saldo_bruto) !== 0n) &&
     `${row.nome_fonte} ${sourceNumber(row.numero_fonte)}`.toLocaleLowerCase("pt-BR")
       .includes(search.trim().toLocaleLowerCase("pt-BR")));
+  const tableKeyboard = useRovingList(rows.map((row) => row.id_fonte), selectedId === "first" ? activeRows[0]?.id_fonte : selectedId ?? undefined);
   const selected = selectedId === "first" ? activeRows[0] : activeRows.find((row) => row.id_fonte === selectedId);
   const noteKey = selected ? `${view?.id_conciliacao}:${selected.id_fonte}` : "";
   const currentDraft = noteDrafts[noteKey] ?? "";
@@ -118,15 +121,15 @@ export default function ReconciliationOverviewPage({ view, statement, batches, s
       <article><div className="overview-summary-label"><span>A conciliar</span><b>{percent(view.totals.gross_balance_percent)}</b></div><strong>{money(view.totals.gross_balance)}</strong><small>Do total recebido</small></article>
     </section>
     <div className="overview-list-area">
-      <div className="overview-tabs" role="group" aria-label="Filtrar fontes pagadoras">
+      <div className="overview-tabs" role="group" aria-label="Filtrar fontes pagadoras" onKeyDown={onTabArrowKey}>
         <button type="button" className={filter === "all" ? "is-active" : ""} aria-pressed={filter === "all"} onClick={() => setFilter("all")}>Todas <span>{activeRows.length}</span></button>
         <button type="button" className={filter === "pending" ? "is-active" : ""} aria-pressed={filter === "pending"} onClick={() => setFilter("pending")}>A conciliar <span>{pendingRows.length}</span></button>
         <label className="overview-search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.4"/><path d="m16 16 4.1 4.1"/></svg><input aria-label="Buscar fonte na visão geral" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar fonte" /></label>
       </div>
-      <div className="overview-table-wrap"><table className="overview-table"><thead><tr><th>ID Fonte</th><th>Fonte pagadora</th><th>Recebido</th><th>Conciliado</th><th>A conciliar</th><th>Status</th></tr></thead><tbody>{rows.map((row) => {
+      <div className="overview-table-wrap"><table className="overview-table"><thead><tr><th>ID Fonte</th><th>Fonte pagadora</th><th>Recebido</th><th>Conciliado</th><th>A conciliar</th><th>Status</th></tr></thead><tbody onKeyDown={tableKeyboard.onKeyDown}>{rows.map((row) => {
         const status = sourceStatus(row);
         return <tr key={row.id_fonte} className={selected?.id_fonte === row.id_fonte ? "is-selected" : ""}>
-          <td>{sourceNumber(row.numero_fonte)}</td><td><button type="button" className="overview-source-button" aria-label={`Ver detalhes de ${row.nome_fonte}`} onClick={(event) => { detailTrigger.current = event.currentTarget; setSelectedId(row.id_fonte); setDetailTab("composition"); requestAnimationFrame(() => detailDismiss.current?.focus()); }}>{row.nome_fonte}</button></td>
+          <td>{sourceNumber(row.numero_fonte)}</td><td><button type="button" className="overview-source-button" {...tableKeyboard.itemProps(row.id_fonte)} aria-label={`Ver detalhes de ${row.nome_fonte}`} onClick={(event) => { detailTrigger.current = event.currentTarget; setSelectedId(row.id_fonte); setDetailTab("composition"); requestAnimationFrame(() => detailDismiss.current?.focus()); }}>{row.nome_fonte}</button></td>
           <td className="amount">{money(row.recebido)}</td><td className="amount">{money(row.catalogo_bruto)}</td><td className="amount">{money(row.saldo_bruto)}</td><td><span className={`overview-status overview-status--${status.tone}`}>{status.label}</span></td>
         </tr>;
       })}</tbody></table>{rows.length === 0 && <p className="overview-empty">Nenhuma fonte com movimento encontrada.</p>}</div>
@@ -134,7 +137,7 @@ export default function ReconciliationOverviewPage({ view, statement, batches, s
       {selected && <aside ref={detailAside} className="overview-detail" aria-label={`Detalhe de ${selected.nome_fonte}`}>
         <div className="overview-detail-head"><div><span className="overview-detail-kicker">FONTE PAGADORA · {sourceNumber(selected.numero_fonte)}</span><h2>{selected.nome_fonte}</h2><span className={`overview-status overview-status--${sourceStatus(selected).tone}`}>{sourceStatus(selected).label}</span></div><button ref={detailDismiss} type="button" className="overview-detail-close" aria-label="Fechar detalhe da fonte" onClick={closeDetail}>×</button></div>
         <div className="overview-detail-summary" aria-label="Valores da fonte"><div><span>Recebido</span><strong>{money(selected.recebido)}</strong></div><div><span>Conciliado</span><strong>{money(selected.catalogo_bruto)}</strong></div><div><span>A conciliar</span><strong>{money(selected.saldo_bruto)}</strong></div></div>
-        <div className="overview-detail-section"><div className="overview-detail-tabs" role="group" aria-label="Dados da fonte"><button type="button" className={detailTab === "composition" ? "is-active" : ""} aria-pressed={detailTab === "composition"} onClick={() => setDetailTab("composition")}>Composição por artista</button><button type="button" className={detailTab === "entries" ? "is-active" : ""} aria-pressed={detailTab === "entries"} onClick={() => setDetailTab("entries")}>Lançamentos <span>{selected.entries.length}</span></button><button type="button" className={detailTab === "notes" ? "is-active" : ""} aria-pressed={detailTab === "notes"} onClick={() => setDetailTab("notes")}>Atividade <span>{activity.length}</span></button></div>
+        <div className="overview-detail-section"><div className="overview-detail-tabs" role="group" aria-label="Dados da fonte" onKeyDown={onTabArrowKey}><button type="button" className={detailTab === "composition" ? "is-active" : ""} aria-pressed={detailTab === "composition"} onClick={() => setDetailTab("composition")}>Composição por artista</button><button type="button" className={detailTab === "entries" ? "is-active" : ""} aria-pressed={detailTab === "entries"} onClick={() => setDetailTab("entries")}>Lançamentos <span>{selected.entries.length}</span></button><button type="button" className={detailTab === "notes" ? "is-active" : ""} aria-pressed={detailTab === "notes"} onClick={() => setDetailTab("notes")}>Atividade <span>{activity.length}</span></button></div>
           {detailTab === "composition" ? <div className="overview-detail-list">{artistTotals.length ? artistTotals.map(([name, total]) => <div key={name}><span>{name}</span><strong>{moneyFromCents(total)}</strong></div>) : <p>Sem composição de artistas nesta fonte.</p>}</div>
             : detailTab === "entries" ? <div className="overview-detail-list">{selected.entries.length ? selected.entries.map((entry) => <div key={entry.id}><span><b>{entry.referencia}</b><small>{entry.nome_artista || "Artista não informado"}</small></span><strong>{money(entry.valor)}</strong></div>) : <p>Sem lançamentos nesta fonte.</p>}</div>
             : <div className="overview-notes"><label htmlFor="overview-note">Nova observação</label><textarea id="overview-note" value={currentDraft} onChange={(event) => setNoteDrafts((current) => ({ ...current, [noteKey]: event.target.value }))} placeholder="Registre um contexto sobre esta fonte…" rows={3} /><div className="overview-notes-actions"><small>Prévia local · disponível apenas nesta sessão</small><button type="button" disabled={!currentDraft.trim()} onClick={saveNote}>Salvar observação</button></div><div className="overview-activity-heading"><strong>Histórico da fonte</strong><small>Registros de demonstração e desta sessão</small></div><ol className="overview-activity-list">{activity.map((entry) => <li key={entry.id}><span className={`overview-activity-mark${entry.demo ? " is-demo" : ""}`} aria-hidden="true" /><div className="overview-activity-content"><div className="overview-activity-meta"><div><strong>{entry.author}</strong><span>{entry.role}</span></div><time dateTime={entry.createdAt}>{activityDate.format(new Date(entry.createdAt))}</time></div><p>{entry.text}</p></div></li>)}</ol></div>}

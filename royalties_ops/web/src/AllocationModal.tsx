@@ -22,8 +22,11 @@ const centsMoney = (cents: number) => money.format(cents / 100);
 
 export default function AllocationModal({ row, draft, sources, sourcesError, saving = false, onChange, onAdd, onRemove, onCancel, onConfirm }: Props) {
   const closeButton = useRef<HTMLButtonElement>(null);
+  const dialog = useRef<HTMLElement>(null);
   const cancelRef = useRef(onCancel);
   cancelRef.current = onCancel;
+  const savingRef = useRef(saving);
+  savingRef.current = saving;
   const summary = allocationSummary(row, draft, sources);
 
   useEffect(() => {
@@ -32,7 +35,16 @@ export default function AllocationModal({ row, draft, sources, sourcesError, sav
     document.body.style.overflow = "hidden";
     closeButton.current?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") { event.preventDefault(); cancelRef.current(); }
+      if (event.key === "Escape" && !savingRef.current) { event.preventDefault(); cancelRef.current(); return; }
+      if (event.key !== "Tab" || !dialog.current) return;
+      const controls = [...dialog.current.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled), select:not(:disabled)")]
+        .filter((element) => element.getClientRects().length > 0);
+      if (!controls.length) return;
+      if (event.shiftKey && (!dialog.current.contains(document.activeElement) || document.activeElement === controls[0])) {
+        event.preventDefault(); controls.at(-1)?.focus();
+      } else if (!event.shiftKey && (!dialog.current.contains(document.activeElement) || document.activeElement === controls.at(-1))) {
+        event.preventDefault(); controls[0].focus();
+      }
     };
     document.addEventListener("keydown", onKeyDown);
     return () => {
@@ -43,7 +55,7 @@ export default function AllocationModal({ row, draft, sources, sourcesError, sav
   }, []);
 
   return <div className="modal-overlay">
-    <section className="allocation-modal" role="dialog" aria-modal="true" aria-labelledby="allocation-title">
+    <section ref={dialog} className="allocation-modal" role="dialog" aria-modal="true" aria-labelledby="allocation-title">
       <header className="modal-header"><div><p className="eyebrow">ALOCAR FONTE</p><h2 id="allocation-title">Desdobrar recebimento</h2></div><button ref={closeButton} className="modal-close" type="button" aria-label="Fechar desdobramento" onClick={onCancel}>×</button></header>
       <div className="modal-original"><div className="original-description"><strong>{row.description}</strong><span>{date.format(new Date(`${row.date}T00:00:00Z`))}</span></div><div className="original-amount"><span>Valor recebido</span><strong>{money.format(Number(row.amount))}</strong></div></div>
       <div className="modal-body"><div className="allocation-columns"><span>Fonte</span><span>Valor</span></div>
