@@ -10,12 +10,34 @@ Instale o Node.js compatível com o Vite deste projeto (**série 20 a partir da 
 
 ```bash
 git clone https://github.com/guivital1/esbo-o.git
-cd esbo-o/royalties_ops/web
+cd esbo-o
+git switch --track origin/feat/next-five-ux
+cd royalties_ops/web
 npm ci
 npm run dev
 ```
 
-Abra o endereço indicado pelo Vite, normalmente `http://localhost:5173/`. No Windows, os mesmos comandos funcionam no PowerShell. Para conferir a compilação, execute `npm run build` dentro de `royalties_ops/web`.
+Abra o endereço indicado pelo Vite, normalmente `http://localhost:5173/`. No Windows, os mesmos comandos funcionam no PowerShell. Para conferir a compilação, execute `npm run build` dentro de `royalties_ops/web`. A branch `main` é um checkpoint anterior; a interface atual está em `feat/next-five-ux`.
+
+> **Atenção:** este comando abre o Design Lab para comparação visual. No computador da empresa, o projeto oficial que já consulta a API deve continuar em seu próprio repositório. Não substitua o projeto oficial por este protótipo.
+
+## Aplicar o layout ao projeto oficial da empresa
+
+Abra **os dois projetos lado a lado** no computador da empresa: este Design Lab na branch `feat/next-five-ux` e o projeto oficial em sua branch de trabalho. Use o Design Lab como referência executável de tela e interação. Preserve no projeto oficial as chamadas à API, autenticação, tratamento de erros, regras financeiras e permissões existentes.
+
+Roteiro para o Codex no projeto oficial:
+
+1. Inspecione as rotas, componentes, tipos e contratos de API reais do projeto oficial. Identifique como ele representa empresa, competência, extrato, fonte pagadora, recebimento, lançamento, importação e usuário autenticado. Não presuma que os nomes ou formatos coincidam com `src/types.ts` deste laboratório.
+2. Compare cada tela oficial com o componente correspondente no mapa abaixo e migre **estrutura, CSS e comportamento de interação** de forma incremental. Comece pela estrutura comum (sidebar, cabeçalho e perfil), depois Visão geral, Operação, Importar dados, Fontes pagadoras e Histórico de extratos. Valide uma tela antes de seguir para a próxima.
+3. Substitua os dados fictícios por propriedades vindas dos adaptadores já existentes no projeto oficial. Use os totais e estados fornecidos pela API quando ela for a fonte oficial; mantenha as regras de cálculo já existentes. Não copie números, IDs, nomes, datas ou classificações de `src/mockData.ts`.
+4. Use `src/api.ts` **somente para entender o fluxo da demonstração**. Não copie seu armazenamento em memória nem troque clientes HTTP reais por ele. A mesma regra vale para o login fictício, a saída de sessão simulada, as visões salvas e a trilha de auditoria: conecte essas funções apenas a mecanismos reais aprovados no projeto oficial.
+5. Antes de concluir, teste navegação, estados vazios, erros da API, carregamento, permissões, foco do teclado e valores financeiros no ambiente de desenvolvimento da empresa. Confira a aparência em desktop com zoom de 100% e largura semelhante à usada na revisão visual.
+
+**Fidelidade visual:** o código, CSS, logo e demais arquivos necessários para abrir o Design Lab estão versionados. O resultado pode variar levemente entre macOS e Windows porque a interface usa fontes do sistema (`-apple-system`/San Francisco no Mac e `Segoe UI` no Windows); não há arquivo de fonte proprietário incluído.
+
+Mensagem sugerida ao Codex **dentro do projeto oficial**:
+
+> Tenho o projeto oficial e o Design Lab `guivital1/esbo-o`, branch `feat/next-five-ux`, disponíveis neste computador. Inspecione primeiro as APIs, tipos, autenticação e regras de negócio do projeto oficial. Use o Design Lab como referência visual e de interação para portar as telas gradualmente. Preserve os dados e integrações reais; não copie `src/api.ts` nem `src/mockData.ts` do laboratório. Mostre o mapeamento entre componentes e dados antes de editar, valide cada tela em desktop e execute os testes do projeto oficial. Não publique nem altere produção sem meu pedido.
 
 ## O que existe hoje
 
@@ -68,7 +90,7 @@ No detalhe de um lote importado, os lançamentos aparecem primeiro **agrupados p
 | `royalties_ops/web/src/useRovingList.ts`, `keyboardTabs.ts`, `KeyboardHelp.tsx` | Navegação de linhas e abas por teclado e guia de atalhos |
 | `royalties_ops/web/src/api.ts`, `mockData.ts`, `types.ts` | Adaptador local, dados fictícios e contratos de tipos |
 
-## Orientações para o Codex na próxima sessão
+## Orientações para continuar somente o Design Lab
 
 1. Leia este README e inspecione a tela atual no navegador antes de alterar componentes. Trate prints e referências do usuário como direção visual, não como autorização para conectar dados reais.
 2. Trabalhe **somente neste Design Lab**, mantendo os fluxos fictícios. Não modifique o projeto oficial nem conecte serviços externos sem um pedido novo e explícito.
@@ -77,7 +99,7 @@ No detalhe de um lote importado, os lançamentos aparecem primeiro **agrupados p
 5. Use somente dados sintéticos. Para validar, execute `npm run build` e confira a tela no navegador em desktop, incluindo a interação alterada.
 6. Ao reportar, diga o que mudou, os arquivos alterados e as limitações. Não apresente comportamentos simulados como integrações concluídas.
 
-Mensagem sugerida ao abrir o projeto no Codex em outro computador:
+Mensagem sugerida ao abrir **este laboratório** no Codex em outro computador:
 
 > Leia o `README.md` e examine `royalties_ops/web` antes de editar. Continue apenas o MUV Royalties Design Lab V1 com dados fictícios. Preserve o layout já aprovado e proponha mudanças incrementais. Nesta sessão, implemente somente o pedido que eu fizer, valide com `npm run build` e no navegador, e reporte arquivos alterados e limites. Não conecte backend nem o projeto oficial por iniciativa própria.
 
