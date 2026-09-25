@@ -80,6 +80,7 @@ export default function ReconciliationOperationPage({ view, statement, bank, sta
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [feedback, setFeedback] = useState("");
+  const [activeRowKey, setActiveRowKey] = useState("");
   const [pendingManualExit, setPendingManualExit] = useState<"manual" | "detail" | null>(null);
   const submissionKey = useRef(crypto.randomUUID());
   const dateInput = useRef<HTMLInputElement>(null);
@@ -112,6 +113,11 @@ export default function ReconciliationOperationPage({ view, statement, bank, sta
   const visibleQueue = queue.filter((item) => (filter === "all" || (filter === "action" && queueStatus(item) !== "balanced") || (filter === "mine" && item.assignee === "Guilherme Vital" && queueStatus(item) !== "balanced")) &&
     `${item.nome_fonte} ${sourceNumber(item.numero_fonte)}`.toLocaleLowerCase("pt-BR").includes(queueTerm));
   const visibleUnidentified = unidentifiedRows.filter(({ item }) => `${item.description} ${item.date}`.toLocaleLowerCase("pt-BR").includes(queueTerm));
+  const visibleRowKeys = filter === "unidentified"
+    ? visibleUnidentified.map(({ item, index }) => `receipt:${item.id_transacao ?? index}`)
+    : visibleQueue.map((item) => `source:${item.id_fonte}`);
+  const keyboardActiveRowKey = visibleRowKeys.includes(activeRowKey) ? activeRowKey
+    : visibleRowKeys.includes(`source:${selectedSourceId}`) ? `source:${selectedSourceId}` : visibleRowKeys[0];
   const sourceId = queue.some((item) => item.id_fonte === selectedSourceId) ? selectedSourceId : queue[0]?.id_fonte || "";
   const row = queue.find((item) => item.id_fonte === sourceId);
   const nextSource = queue[queue.findIndex((item) => item.id_fonte === sourceId) + 1];
@@ -168,6 +174,21 @@ export default function ReconciliationOperationPage({ view, statement, bank, sta
     setSearch("");
     setFeedback("");
     setDetailOpen(true);
+  };
+  const moveRowFocus = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+    const current = (event.target as HTMLElement).closest<HTMLButtonElement>(".operation-source-row");
+    if (!current || !event.currentTarget.contains(current)) return;
+    const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>(".operation-source-row")];
+    if (!buttons.length) return;
+    const index = buttons.indexOf(current);
+    const nextIndex = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1
+      : Math.min(buttons.length - 1, Math.max(0, index + (event.key === "ArrowDown" ? 1 : -1)));
+    event.preventDefault();
+    const next = buttons[nextIndex];
+    setActiveRowKey(next.dataset.rowKey ?? "");
+    next.focus();
+    next.scrollIntoView({ block: "nearest" });
   };
 
   useEffect(() => {
@@ -247,9 +268,9 @@ export default function ReconciliationOperationPage({ view, statement, bank, sta
       <header className="operation-list-heading"><div><h2>{filter === "unidentified" ? "Recebimentos sem fonte" : "Fontes da competência"}</h2><p>{filter === "unidentified" ? "Selecione um recebimento para identificar a fonte no extrato." : "Ordenadas por prioridade e diferença. Selecione uma fonte para conferir os lançamentos."}</p></div><span className="operation-list-total">{filter === "unidentified" ? `${unidentifiedRows.length} ${unidentifiedRows.length === 1 ? "recebimento" : "recebimentos"}` : `${queue.length} ${queue.length === 1 ? "fonte" : "fontes"}`}</span></header>
       <div className="operation-list-tools"><div className="operation-list-filters" role="group" aria-label="Visões rápidas da fila">{filters.map((item) => <button key={item.key} type="button" className={filter === item.key ? "is-active" : ""} aria-pressed={filter === item.key} onClick={() => onFilterChange(item.key)}>{item.label}<span>{item.count}</span></button>)}</div><label className="operation-list-search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.4"/><path d="m16 16 4.1 4.1"/></svg><input value={queueQuery} onChange={(event) => onQueueQueryChange(event.target.value)} placeholder={filter === "unidentified" ? "Buscar recebimento" : "Buscar fonte"} aria-label={filter === "unidentified" ? "Buscar recebimento sem fonte" : "Buscar fonte na operação"} /></label></div>
       {filter === "mine" && <p className="operation-filter-hint">Atribuição demonstrativa a Guilherme Vital nesta competência.</p>}
-      <div className="operation-source-rows">{filter === "unidentified" ? (visibleUnidentified.length ? visibleUnidentified.map(({ item, index }) => <button key={item.id_transacao ?? index} type="button" className="operation-source-row operation-unidentified-row" onClick={() => view && onReviewBankStatement(view.bank_statement_id, index)}><span className="operation-row-identity"><strong>{item.description}</strong><small>{item.date.split("-").reverse().join("/")} · Extrato {bank ?? "bancário"}</small></span><span className="operation-row-values"><span>Recebido <b>{money(item.amount)}</b></span></span><span className="operation-row-next"><span className="operation-row-status is-review">Sem fonte</span><small>Analisar no extrato</small></span><span className="operation-row-arrow" aria-hidden="true">›</span></button>) : <div className="operation-list-empty">{unidentifiedRows.length ? "Nenhum recebimento corresponde à busca." : "Nenhum recebimento sem fonte nesta competência."}</div>) : visibleQueue.length ? visibleQueue.map((item) => {
+      <div className="operation-source-rows" onKeyDown={moveRowFocus}>{filter === "unidentified" ? (visibleUnidentified.length ? visibleUnidentified.map(({ item, index }) => <button key={item.id_transacao ?? index} data-row-key={`receipt:${item.id_transacao ?? index}`} type="button" tabIndex={keyboardActiveRowKey === `receipt:${item.id_transacao ?? index}` ? 0 : -1} onFocus={() => setActiveRowKey(`receipt:${item.id_transacao ?? index}`)} className="operation-source-row operation-unidentified-row" onClick={() => view && onReviewBankStatement(view.bank_statement_id, index)}><span className="operation-row-identity"><strong>{item.description}</strong><small>{item.date.split("-").reverse().join("/")} · Extrato {bank ?? "bancário"}</small></span><span className="operation-row-values"><span>Recebido <b>{money(item.amount)}</b></span></span><span className="operation-row-next"><span className="operation-row-status is-review">Sem fonte</span><small>Analisar no extrato</small></span><span className="operation-row-arrow" aria-hidden="true">›</span></button>) : <div className="operation-list-empty">{unidentifiedRows.length ? "Nenhum recebimento corresponde à busca." : "Nenhum recebimento sem fonte nesta competência."}</div>) : visibleQueue.length ? visibleQueue.map((item) => {
         const status = queueStatus(item);
-        return <button key={item.id_fonte} data-source-id={item.id_fonte} type="button" className={`operation-source-row ${status === "balanced" ? "is-balanced" : ""} ${item.id_fonte === selectedSourceId ? "is-selected" : ""}`} onClick={(event) => { trigger.current = event.currentTarget; selectSource(item.id_fonte); }}>
+        return <button key={item.id_fonte} data-source-id={item.id_fonte} data-row-key={`source:${item.id_fonte}`} type="button" tabIndex={keyboardActiveRowKey === `source:${item.id_fonte}` ? 0 : -1} onFocus={() => setActiveRowKey(`source:${item.id_fonte}`)} className={`operation-source-row ${status === "balanced" ? "is-balanced" : ""} ${item.id_fonte === selectedSourceId ? "is-selected" : ""}`} onClick={(event) => { trigger.current = event.currentTarget; selectSource(item.id_fonte); }}>
           <span className="operation-row-identity"><strong>{item.nome_fonte}</strong><small>ID Fonte {sourceNumber(item.numero_fonte)}{item.assignee ? ` · ${item.assignee}` : ""}</small></span>
           <span className="operation-row-values"><span>Recebido <b>{money(item.recebido)}</b></span><span>Conciliado <b>{money(item.catalogo_bruto)}</b></span><span className="operation-row-difference">Diferença <b>{money(item.saldo_bruto)}</b></span></span>
           <span className="operation-row-next"><span className={`operation-row-status is-${status}`}>{statusLabel[status]}</span><small>{status === "pending" ? "Conferir lançamentos" : status === "review" ? "Revisar composição" : "Valores conferidos"}</small></span><span className="operation-row-arrow" aria-hidden="true">›</span>
