@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { createReconciliation, getBankStatements, getReconciliation, getReconciliations } from "./api";
-import type { BankStatementSummary, ReconciliationSummary, ReconciliationView, Source } from "./types";
+import { createReconciliation, getBankStatement, getBankStatements, getIngestionBatches, getReconciliation, getReconciliations } from "./api";
+import type { BankStatementSummary, BankStatementView, IngestionBatch, ReconciliationSummary, ReconciliationView, Source } from "./types";
+import type { SessionAction, SessionNote } from "./sessionNotes";
 import { money, monthLabel } from "./reconciliationFormat";
 import ReconciliationOverviewPage from "./ReconciliationOverviewPage";
 import ReconciliationOperationPage from "./ReconciliationOperationPage";
@@ -10,17 +11,21 @@ import StatusNotice from "./StatusNotice";
 
 export type ReconciliationSection = "overview" | "operation" | "import";
 type Props = { section: ReconciliationSection; onSectionChange: (section: ReconciliationSection) => void;
-  onReviewBankStatement: (id: string) => void;
+  onReviewBankStatement: (id: string, transactionIndex?: number) => void;
   entity: "HM" | "MDB"; onEntityChange: (entity: "HM" | "MDB") => void; period: string; onPeriodChange: (period: string) => void;
   statementId: string; onStatementChange: (id: string) => void;
   selectedSourceId: string; onSelectedSourceChange: (id: string) => void;
-  operationFilter: "all" | "action"; onOperationFilterChange: (filter: "all" | "action") => void;
+  operationFilter: "all" | "action" | "mine" | "unidentified"; onOperationFilterChange: (filter: "all" | "action" | "mine" | "unidentified") => void;
   operationQuery: string; onOperationQueryChange: (query: string) => void; onOperationDraftDirtyChange: (dirty: boolean) => void;
+  sessionNotes: SessionNote[]; onAddSessionNote: (note: SessionNote) => void;
+  sessionActions: SessionAction[]; onAddSessionAction: (action: SessionAction) => void;
   sources: Source[]; sourcesError: string; historyOpenRequest?: HistorySearchTarget & { key: number } };
 const titles = { overview: "Visão geral", operation: "Operação", import: "Importar dados" };
 
-export default function ReconciliationPage({ section, onSectionChange, onReviewBankStatement, entity, onEntityChange, period, onPeriodChange, statementId, onStatementChange, selectedSourceId, onSelectedSourceChange, operationFilter, onOperationFilterChange, operationQuery, onOperationQueryChange, onOperationDraftDirtyChange, sources, sourcesError, historyOpenRequest }: Props) {
+export default function ReconciliationPage({ section, onSectionChange, onReviewBankStatement, entity, onEntityChange, period, onPeriodChange, statementId, onStatementChange, selectedSourceId, onSelectedSourceChange, operationFilter, onOperationFilterChange, operationQuery, onOperationQueryChange, onOperationDraftDirtyChange, sessionNotes, onAddSessionNote, sessionActions, onAddSessionAction, sources, sourcesError, historyOpenRequest }: Props) {
   const [statements, setStatements] = useState<BankStatementSummary[]>([]);
+  const [bankStatement, setBankStatement] = useState<BankStatementView>();
+  const [ingestionBatches, setIngestionBatches] = useState<IngestionBatch[]>([]);
   const [reconciliations, setReconciliations] = useState<ReconciliationSummary[]>([]);
   const [view, setView] = useState<ReconciliationView>();
   const [loading, setLoading] = useState(false);
@@ -59,12 +64,21 @@ export default function ReconciliationPage({ section, onSectionChange, onReviewB
   const existing = reconciliations.find((item) => item.bank_statement_id === statementId);
   const existingId = existing?.id_conciliacao;
   useEffect(() => {
-    if (!existingId) { setView(undefined); setOpening(false); return; }
+    if (!statementId) { setBankStatement(undefined); return; }
     const controller = new AbortController();
-    setView(undefined); setError(""); setOpening(true);
+    setBankStatement(undefined);
+    getBankStatement(statementId, controller.signal).then(setBankStatement).catch(() => { if (!controller.signal.aborted) setBankStatement(undefined); });
+    return () => controller.abort();
+  }, [statementId]);
+  useEffect(() => {
+    if (!existingId) { setView(undefined); setOpening(false); setIngestionBatches([]); return; }
+    const controller = new AbortController();
+    setView(undefined); setIngestionBatches([]); setError(""); setOpening(true);
     getReconciliation(existingId, controller.signal).then(setView)
       .catch((reason) => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Não foi possível abrir a conciliação."); })
       .finally(() => { if (!controller.signal.aborted) setOpening(false); });
+    getIngestionBatches(existingId, controller.signal).then(setIngestionBatches)
+      .catch(() => { if (!controller.signal.aborted) setIngestionBatches([]); });
     return () => controller.abort();
   }, [existingId]);
 
@@ -131,8 +145,8 @@ export default function ReconciliationPage({ section, onSectionChange, onReviewB
     {!importHistory && (loading || opening && !view) ? <StatusNotice tone="loading">Carregando conciliação…</StatusNotice> : null}
     {!importHistory && error && <StatusNotice tone="error">{error}</StatusNotice>}
     {!importHistory && feedback && <StatusNotice tone="success">{feedback}</StatusNotice>}
-    {section === "overview" && <ReconciliationOverviewPage view={view} onOpenSource={openSource} onReviewBankStatement={onReviewBankStatement} />}
-    {section === "operation" && <ReconciliationOperationPage view={view} bank={selectedStatement?.bank} statementVersion={selectedStatement?.version} selectedSourceId={selectedSourceId} onSourceChange={onSelectedSourceChange} filter={operationFilter} onFilterChange={onOperationFilterChange} queueQuery={operationQuery} onQueueQueryChange={onOperationQueryChange} onDraftDirtyChange={onOperationDraftDirtyChange} onSaved={setView} />}
-    {section === "import" && <ReconciliationImportPage view={view} entity={entity} tab={importTab} onTabChange={setImportTab} onConfirmed={setView} onOpenSource={openSource} onPreviewOpenChange={setPreviewOpen} openRequest={historyOpenRequest} />}
+    {section === "overview" && <ReconciliationOverviewPage view={view} statement={bankStatement} batches={ingestionBatches} sessionNotes={sessionNotes} sessionActions={sessionActions} onAddSessionNote={onAddSessionNote} onOpenSource={openSource} onReviewBankStatement={onReviewBankStatement} />}
+    {section === "operation" && <ReconciliationOperationPage view={view} statement={bankStatement} bank={selectedStatement?.bank} statementVersion={selectedStatement?.version} selectedSourceId={selectedSourceId} onSourceChange={onSelectedSourceChange} filter={operationFilter} onFilterChange={onOperationFilterChange} queueQuery={operationQuery} onQueueQueryChange={onOperationQueryChange} onDraftDirtyChange={onOperationDraftDirtyChange} onReviewBankStatement={onReviewBankStatement} onAddSessionAction={onAddSessionAction} onSaved={setView} />}
+    {section === "import" && <ReconciliationImportPage view={view} entity={entity} tab={importTab} onTabChange={setImportTab} onConfirmed={(saved) => { setView(saved); getIngestionBatches(saved.id_conciliacao).then(setIngestionBatches).catch(() => setIngestionBatches([])); }} onOpenSource={openSource} onPreviewOpenChange={setPreviewOpen} openRequest={historyOpenRequest} />}
   </div>;
 }

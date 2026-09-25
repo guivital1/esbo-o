@@ -1,8 +1,9 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { addManualCatalogEntry, getArtists } from "./api";
-import type { Artist, CatalogEntry, ReconciliationRow, ReconciliationView } from "./types";
+import type { Artist, BankStatementView, CatalogEntry, ReconciliationRow, ReconciliationView } from "./types";
 import { cents, money, moneyFromCents, monthLabel, percent, sourceNumber } from "./reconciliationFormat";
 import StatusNotice from "./StatusNotice";
+import type { SessionAction } from "./sessionNotes";
 
 export type ArtistComposition = { key: string; nome: string; valorCents: bigint; lancamentos: number; identificada: boolean };
 
@@ -20,7 +21,7 @@ export function composeByArtist(entries: CatalogEntry[]): ArtistComposition[] {
 }
 
 type QueueStatus = "pending" | "balanced" | "review";
-type QueueFilter = "all" | "action";
+type QueueFilter = "all" | "action" | "mine" | "unidentified";
 
 function hasMovement(row: ReconciliationRow): boolean {
   return cents(row.recebido) !== 0n || cents(row.catalogo_bruto) !== 0n || cents(row.saldo_bruto) !== 0n;
@@ -50,12 +51,14 @@ const demoActivity: Record<string, { action: string; actor: string; day: string;
   ],
 };
 
-type Props = { view?: ReconciliationView; bank?: string; statementVersion?: number; selectedSourceId: string;
+type Props = { view?: ReconciliationView; statement?: BankStatementView; bank?: string; statementVersion?: number; selectedSourceId: string;
   onSourceChange: (id: string) => void; filter: QueueFilter; onFilterChange: (filter: QueueFilter) => void;
   queueQuery: string; onQueueQueryChange: (query: string) => void; onDraftDirtyChange: (dirty: boolean) => void;
+  onReviewBankStatement: (id: string, transactionIndex?: number) => void;
+  onAddSessionAction: (action: SessionAction) => void;
   onSaved: (view: ReconciliationView) => void };
 
-export default function ReconciliationOperationPage({ view, bank, statementVersion, selectedSourceId, onSourceChange, filter, onFilterChange, queueQuery, onQueueQueryChange, onDraftDirtyChange, onSaved }: Props) {
+export default function ReconciliationOperationPage({ view, statement, bank, statementVersion, selectedSourceId, onSourceChange, filter, onFilterChange, queueQuery, onQueueQueryChange, onDraftDirtyChange, onReviewBankStatement, onAddSessionAction, onSaved }: Props) {
   const [detailOpen, setDetailOpen] = useState(() => Boolean(selectedSourceId && view?.rows.some((item) => item.id_fonte === selectedSourceId && hasMovement(item))));
   const [mode, setMode] = useState<"artists" | "entries">("artists");
   const [search, setSearch] = useState("");
@@ -91,15 +94,25 @@ export default function ReconciliationOperationPage({ view, bank, statementVersi
     });
   }, [view]);
   const actionRows = queue.filter((item) => queueStatus(item) !== "balanced");
+  const mineRows = actionRows.filter((item) => item.assignee === "Guilherme Vital");
+  const unidentifiedRows = statement?.rows.map((item, index) => ({ item, index }))
+    .filter(({ item, index }) => item.review_required && !statement.allocations?.[index]) ?? [];
   const pendingTotal = actionRows.reduce((total, item) => total + (cents(item.saldo_bruto) > 0n ? cents(item.saldo_bruto) : 0n), 0n);
   const reviewCount = actionRows.filter((item) => queueStatus(item) === "review").length;
   const queueTerm = queueQuery.trim().toLocaleLowerCase("pt-BR");
-  const visibleQueue = queue.filter((item) => (filter === "all" || queueStatus(item) !== "balanced") &&
+  const visibleQueue = queue.filter((item) => (filter === "all" || (filter === "action" && queueStatus(item) !== "balanced") || (filter === "mine" && item.assignee === "Guilherme Vital" && queueStatus(item) !== "balanced")) &&
     `${item.nome_fonte} ${sourceNumber(item.numero_fonte)}`.toLocaleLowerCase("pt-BR").includes(queueTerm));
+  const visibleUnidentified = unidentifiedRows.filter(({ item }) => `${item.description} ${item.date}`.toLocaleLowerCase("pt-BR").includes(queueTerm));
   const sourceId = queue.some((item) => item.id_fonte === selectedSourceId) ? selectedSourceId : queue[0]?.id_fonte || "";
   const row = queue.find((item) => item.id_fonte === sourceId);
   const nextSource = queue[queue.findIndex((item) => item.id_fonte === sourceId) + 1];
   const entries = row?.entries ?? [];
+  const sourceReceipts = statement?.rows.flatMap((item, index) => {
+    const allocation = statement.allocations?.[index]?.allocations.find((part) => part.id_fonte === sourceId);
+    if (item.id_fonte !== sourceId && !allocation) return [];
+    return [{ key: item.id_transacao ?? String(index), date: item.date, description: item.description,
+      amount: allocation ? moneyFromCents(BigInt(allocation.amount_cents)) : money(item.amount) }];
+  }) ?? [];
   const groups = useMemo(() => composeByArtist(entries), [entries]);
   const identifiedArtistCount = groups.filter((item) => item.identificada).length;
   const term = search.trim().toLocaleLowerCase("pt-BR");
@@ -183,7 +196,11 @@ export default function ReconciliationOperationPage({ view, bank, statementVersi
       const saved = await addManualCatalogEntry(view.id_conciliacao, { data: entryDate, id_fonte: sourceId,
         id_artista: artistId, valor: amount.trim().replace(",", "."), referencia: reference.trim(),
         idempotency_key: submissionKey.current });
-      onSaved(saved); setPendingManualExit(null); setManualOpen(false); setEntryDate(""); setArtistId(""); setAmount(""); setReference("");
+      onSaved(saved);
+      onAddSessionAction({ id: crypto.randomUUID(), reconciliationId: view.id_conciliacao, sourceId,
+        title: "Lançamento manual adicionado", detail: `${row?.nome_fonte ?? "Fonte"} · ${money(amount.trim().replace(",", "."))} · ${reference.trim()}`,
+        actor: "Guilherme Vital · Estagiário de Backoffice", createdAt: new Date().toISOString() });
+      setPendingManualExit(null); setManualOpen(false); setEntryDate(""); setArtistId(""); setAmount(""); setReference("");
       submissionKey.current = crypto.randomUUID();
       const warnings = (saved as ReconciliationView & { ingestion_warnings?: string[] }).ingestion_warnings ?? [];
       setFeedback(`Lançamento salvo. Conciliado e A conciliar foram atualizados.${warnings.length ? ` ${warnings.join(" ")}` : ""}`);
@@ -196,17 +213,20 @@ export default function ReconciliationOperationPage({ view, bank, statementVersi
   const filters: { key: QueueFilter; label: string; count: number }[] = [
     { key: "all", label: "Todas", count: queue.length },
     { key: "action", label: "Precisam de ação", count: actionRows.length },
+    { key: "mine", label: "Minhas pendências", count: mineRows.length },
+    { key: "unidentified", label: "Sem fonte", count: unidentifiedRows.length },
   ];
 
   return <div className="reconciliation-operation" aria-label="Operação da conciliação">
     <section className="operation-priority" aria-label="Prioridade da conciliação"><div><span>FILA DA COMPETÊNCIA</span><strong>{actionRows.length ? `${actionRows.length} ${actionRows.length === 1 ? "fonte precisa" : "fontes precisam"} de ação` : "Todas as fontes conciliadas"}</strong><p>{actionRows.length ? `${moneyFromCents(pendingTotal)} a conciliar${reviewCount ? ` · ${reviewCount} ${reviewCount === 1 ? "saldo para revisar" : "saldos para revisar"}` : ""}` : "Nenhuma diferença entre recebido e conciliado nas fontes com movimento."}</p></div>{actionRows[0] && <button type="button" onClick={(event) => { trigger.current = event.currentTarget; selectSource(actionRows[0].id_fonte); }}><span>PRÓXIMA FONTE</span><strong>{actionRows[0].nome_fonte}</strong><small>{queueStatus(actionRows[0]) === "review" ? "Revisar saldo" : `${money(actionRows[0].saldo_bruto)} a conciliar`} <span aria-hidden="true">↗</span></small></button>}</section>
     <section className="operation-source-list" aria-label="Fontes da competência">
-      <header className="operation-list-heading"><div><h2>Fontes da competência</h2><p>Ordenadas por prioridade e diferença. Selecione uma fonte para conferir os lançamentos.</p></div><span className="operation-list-total">{queue.length} {queue.length === 1 ? "fonte" : "fontes"}</span></header>
-      <div className="operation-list-tools"><div className="operation-list-filters" role="group" aria-label="Filtrar fontes por saldo">{filters.map((item) => <button key={item.key} type="button" className={filter === item.key ? "is-active" : ""} aria-pressed={filter === item.key} onClick={() => onFilterChange(item.key)}>{item.label}<span>{item.count}</span></button>)}</div><label className="operation-list-search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.4"/><path d="m16 16 4.1 4.1"/></svg><input value={queueQuery} onChange={(event) => onQueueQueryChange(event.target.value)} placeholder="Buscar fonte" aria-label="Buscar fonte na operação" /></label></div>
-      <div className="operation-source-rows">{visibleQueue.length ? visibleQueue.map((item) => {
+      <header className="operation-list-heading"><div><h2>{filter === "unidentified" ? "Recebimentos sem fonte" : "Fontes da competência"}</h2><p>{filter === "unidentified" ? "Selecione um recebimento para identificar a fonte no extrato." : "Ordenadas por prioridade e diferença. Selecione uma fonte para conferir os lançamentos."}</p></div><span className="operation-list-total">{filter === "unidentified" ? `${unidentifiedRows.length} ${unidentifiedRows.length === 1 ? "recebimento" : "recebimentos"}` : `${queue.length} ${queue.length === 1 ? "fonte" : "fontes"}`}</span></header>
+      <div className="operation-list-tools"><div className="operation-list-filters" role="group" aria-label="Visões rápidas da fila">{filters.map((item) => <button key={item.key} type="button" className={filter === item.key ? "is-active" : ""} aria-pressed={filter === item.key} onClick={() => onFilterChange(item.key)}>{item.label}<span>{item.count}</span></button>)}</div><label className="operation-list-search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.4"/><path d="m16 16 4.1 4.1"/></svg><input value={queueQuery} onChange={(event) => onQueueQueryChange(event.target.value)} placeholder={filter === "unidentified" ? "Buscar recebimento" : "Buscar fonte"} aria-label={filter === "unidentified" ? "Buscar recebimento sem fonte" : "Buscar fonte na operação"} /></label></div>
+      {filter === "mine" && <p className="operation-filter-hint">Atribuição demonstrativa a Guilherme Vital nesta competência.</p>}
+      <div className="operation-source-rows">{filter === "unidentified" ? (visibleUnidentified.length ? visibleUnidentified.map(({ item, index }) => <button key={item.id_transacao ?? index} type="button" className="operation-source-row operation-unidentified-row" onClick={() => view && onReviewBankStatement(view.bank_statement_id, index)}><span className="operation-row-identity"><strong>{item.description}</strong><small>{item.date.split("-").reverse().join("/")} · Extrato {bank ?? "bancário"}</small></span><span className="operation-row-values"><span>Recebido <b>{money(item.amount)}</b></span></span><span className="operation-row-next"><span className="operation-row-status is-review">Sem fonte</span><small>Analisar no extrato</small></span><span className="operation-row-arrow" aria-hidden="true">›</span></button>) : <div className="operation-list-empty">{unidentifiedRows.length ? "Nenhum recebimento corresponde à busca." : "Nenhum recebimento sem fonte nesta competência."}</div>) : visibleQueue.length ? visibleQueue.map((item) => {
         const status = queueStatus(item);
         return <button key={item.id_fonte} type="button" className={`operation-source-row ${status === "balanced" ? "is-balanced" : ""} ${item.id_fonte === selectedSourceId ? "is-selected" : ""}`} onClick={(event) => { trigger.current = event.currentTarget; selectSource(item.id_fonte); }}>
-          <span className="operation-row-identity"><strong>{item.nome_fonte}</strong><small>ID Fonte {sourceNumber(item.numero_fonte)}</small></span>
+          <span className="operation-row-identity"><strong>{item.nome_fonte}</strong><small>ID Fonte {sourceNumber(item.numero_fonte)}{item.assignee ? ` · ${item.assignee}` : ""}</small></span>
           <span className="operation-row-values"><span>Recebido <b>{money(item.recebido)}</b></span><span>Conciliado <b>{money(item.catalogo_bruto)}</b></span><span className="operation-row-difference">Diferença <b>{money(item.saldo_bruto)}</b></span></span>
           <span className="operation-row-next"><span className={`operation-row-status is-${status}`}>{statusLabel[status]}</span><small>{status === "pending" ? "Conferir lançamentos" : status === "review" ? "Revisar composição" : "Valores conferidos"}</small></span><span className="operation-row-arrow" aria-hidden="true">›</span>
         </button>;
@@ -220,6 +240,7 @@ export default function ReconciliationOperationPage({ view, bank, statementVersi
       {nextSource && !manualOpen && <button type="button" className="operation-next-source" onClick={() => selectSource(nextSource.id_fonte)}>Próxima fonte <strong>{nextSource.nome_fonte}</strong><span aria-hidden="true">→</span></button>}
       {feedback && <StatusNotice tone="success">{feedback}</StatusNotice>}
       <section className="operation-totals" aria-label="Resumo da fonte"><div><span>Recebido</span><strong>{money(row.recebido)}</strong><small>{receivedCents === 0n ? "—" : "100,00%"}</small></div><div><span>Conciliado</span><strong>{money(row.catalogo_bruto)}</strong><small>{metricPercent(row.catalogo_bruto)}</small></div><div><span>A conciliar</span><strong>{money(row.saldo_bruto)}</strong><small>{metricPercent(row.saldo_bruto)}</small></div></section>
+      {!manualOpen && <details className="operation-compare" open><summary>Conferir extrato e lançamentos lado a lado <span aria-hidden="true">⌄</span></summary><div className="operation-compare-columns"><div><h3>Recebimentos no extrato <small>{sourceReceipts.length}</small></h3>{sourceReceipts.length ? sourceReceipts.map((receipt) => <div className="operation-compare-line" key={receipt.key}><span><strong>{receipt.description}</strong><small>{receipt.date.split("-").reverse().join("/")}</small></span><b>{receipt.amount}</b></div>) : <p>Nenhum recebimento vinculado a esta fonte no extrato selecionado.</p>}</div><div><h3>Lançamentos do catálogo <small>{entries.length}</small></h3>{entries.length ? entries.map((entry) => <div className="operation-compare-line" key={entry.id}><span><strong>{entry.nome_artista || "Artista não identificado"}</strong><small>{entry.referencia || entry.origem}</small></span><b>{money(entry.valor)}</b></div>) : <p>Nenhum lançamento para esta fonte.</p>}</div></div></details>}
       {!manualOpen ? <><section className={`operation-next-step is-${queueStatus(row)}`} aria-label="Próximo passo"><div><span>PRÓXIMO PASSO</span><strong>{queueStatus(row) === "pending" ? `${money(row.saldo_bruto)} pendentes de conciliação` : queueStatus(row) === "review" ? `Lançamentos excedem o recebido em ${moneyFromCents(-cents(row.saldo_bruto))}` : "Valores desta fonte conciliados"}</strong><p>{queueStatus(row) === "pending" ? "Compare o recebido com os lançamentos. Adicione um valor somente após identificá-lo." : queueStatus(row) === "review" ? "Confira os lançamentos para localizar a diferença antes de adicionar novos valores." : "Confira a composição abaixo ou selecione outra fonte da fila."}</p></div>{queueStatus(row) === "pending" && <button ref={addButton} type="button" className="process" onClick={() => { setError(""); setArtistsError(""); setManualOpen(true); }}>Adicionar lançamento</button>}{queueStatus(row) === "review" && <button type="button" className="operation-step-secondary" onClick={() => setMode("entries")}>Ver lançamentos</button>}</section><section className="operation-composition" aria-label="Composição da fonte"><header className="operation-composition-heading"><div><h3>Composição da fonte</h3><p>{identifiedArtistCount} {identifiedArtistCount === 1 ? "artista" : "artistas"} · {entries.length} {entries.length === 1 ? "lançamento" : "lançamentos"}</p></div>{queueStatus(row) !== "pending" && <button ref={addButton} type="button" className="operation-step-secondary" onClick={() => { setError(""); setArtistsError(""); setManualOpen(true); }}>Adicionar lançamento</button>}</header>
         <div className="operation-controls"><div className="operation-view-tabs" role="group" aria-label="Visualização da composição"><button type="button" className={mode === "artists" ? "is-active" : ""} aria-pressed={mode === "artists"} onClick={() => setMode("artists")}>Por artista</button><button type="button" className={mode === "entries" ? "is-active" : ""} aria-pressed={mode === "entries"} onClick={() => setMode("entries")}>Lançamentos</button></div><label className="search">Buscar<input aria-label="Buscar na operação" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Artista ou referência" /></label></div>
         {mode === "artists" ? <ul className="operation-composition-list">{filteredGroups.map((group) => <li key={group.key}><div><strong>{group.nome}</strong><small>{group.lancamentos} {group.lancamentos === 1 ? "lançamento" : "lançamentos"}{group.identificada ? "" : " · sem identificação"}</small></div><b>{moneyFromCents(group.valorCents)}</b></li>)}</ul>

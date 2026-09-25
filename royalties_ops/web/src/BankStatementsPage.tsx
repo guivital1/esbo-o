@@ -19,7 +19,7 @@ const monthLabel = (period: string) => { if (!period) return "Selecione a compet
 const banks = { MDB: "Safra", HM: "BTG Pactual" } as const;
 const defaultPeriod = () => { const today = new Date(); const previous = new Date(today.getFullYear(), today.getMonth() - 1, 1); return `${previous.getFullYear()}-${String(previous.getMonth() + 1).padStart(2, "0")}`; };
 
-type Props = { sources: Source[]; sourcesError: string; openRequest?: { statementId: string; key: number } };
+type Props = { sources: Source[]; sourcesError: string; openRequest?: { statementId: string; transactionIndex?: number; key: number } };
 
 export default function BankStatementsPage({ sources, sourcesError, openRequest }: Props) {
   const [mode, setMode] = useState<"history" | "import" | "statement">("history");
@@ -67,7 +67,9 @@ export default function BankStatementsPage({ sources, sourcesError, openRequest 
     getBankStatement(openRequest.statementId).then((saved) => {
       if (!active) return;
       const savedAllocations = saved.allocations ?? {};
-      const pendingIndex = saved.rows.findIndex((row, index) => row.review_required && !savedAllocations[index]);
+      const requestedIndex = openRequest.transactionIndex;
+      const requestedPending = requestedIndex !== undefined && saved.rows[requestedIndex]?.review_required && !savedAllocations[requestedIndex];
+      const pendingIndex = requestedPending ? requestedIndex : saved.rows.findIndex((row, index) => row.review_required && !savedAllocations[index]);
       setStatement(saved); setAllocations(savedAllocations); setSearch(""); setBankFilters(emptyBankFilters());
       setActiveIndex(pendingIndex >= 0 ? pendingIndex : null);
       if (pendingIndex >= 0) setDraft(draftFor(saved.rows[pendingIndex], savedAllocations[pendingIndex], sources));

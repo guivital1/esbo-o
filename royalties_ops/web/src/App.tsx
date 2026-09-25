@@ -7,9 +7,10 @@ import ReconciliationPage from "./ReconciliationPage";
 import type { ReconciliationSection } from "./ReconciliationPage";
 import Spotlight from "./Spotlight";
 import type { HistorySearchTarget, SearchArea } from "./Spotlight";
+import type { SessionAction, SessionNote } from "./sessionNotes";
 
 type Area = "bank" | "sources" | ReconciliationSection;
-type NavigationTarget = { area: Area; sourceId?: string; history?: HistorySearchTarget; bankStatementId?: string; resetBank?: boolean };
+type NavigationTarget = { area: Area; sourceId?: string; history?: HistorySearchTarget; bankStatementId?: string; transactionIndex?: number; resetBank?: boolean };
 const initialPeriod = () => {
   const now = new Date(); const previous = new Date(now.getFullYear(), now.getMonth() - 1, 1);
   return `${previous.getFullYear()}-${String(previous.getMonth() + 1).padStart(2, "0")}`;
@@ -34,12 +35,14 @@ export default function App({ spotlightOpen, onCloseSpotlight }: Props) {
   const [reconciliationPeriod, setReconciliationPeriod] = useState(initialPeriod);
   const [reconciliationStatementId, setReconciliationStatementId] = useState("");
   const [reconciliationSourceId, setReconciliationSourceId] = useState("");
-  const [operationFilter, setOperationFilter] = useState<"all" | "action">("all");
+  const [operationFilter, setOperationFilter] = useState<"all" | "action" | "mine" | "unidentified">("all");
   const [operationQuery, setOperationQuery] = useState("");
+  const [sessionNotes, setSessionNotes] = useState<SessionNote[]>([]);
+  const [sessionActions, setSessionActions] = useState<SessionAction[]>([]);
   const [operationDraftDirty, setOperationDraftDirty] = useState(false);
   const [pendingNavigation, setPendingNavigation] = useState<NavigationTarget>();
   const [bankHistoryRequest, setBankHistoryRequest] = useState(0);
-  const [bankOpenRequest, setBankOpenRequest] = useState<{ statementId: string; key: number }>();
+  const [bankOpenRequest, setBankOpenRequest] = useState<{ statementId: string; transactionIndex?: number; key: number }>();
   const [automationPreviewOpen, setAutomationPreviewOpen] = useState(false);
   const [sources, setSources] = useState<Source[]>([]);
   const [sourcesLoading, setSourcesLoading] = useState(true);
@@ -66,7 +69,7 @@ export default function App({ spotlightOpen, onCloseSpotlight }: Props) {
     setArea(target.area);
     setSourceOpenRequest(target.sourceId ? { id: target.sourceId, key: Date.now() } : undefined);
     setHistoryOpenRequest(target.history ? { ...target.history, key: Date.now() } : undefined);
-    setBankOpenRequest(target.bankStatementId ? { statementId: target.bankStatementId, key: Date.now() } : undefined);
+    setBankOpenRequest(target.bankStatementId ? { statementId: target.bankStatementId, transactionIndex: target.transactionIndex, key: Date.now() } : undefined);
     if (target.resetBank) setBankHistoryRequest((value) => value + 1);
     setAutomationPreviewOpen(false);
   };
@@ -101,7 +104,7 @@ export default function App({ spotlightOpen, onCloseSpotlight }: Props) {
       <div hidden={area !== "bank"}><BankStatementsPage key={bankHistoryRequest} sources={sources} sourcesError={sourcesError} openRequest={bankOpenRequest} /></div>
       {area === "sources" && <SourcesPage sources={sources} loading={sourcesLoading} error={sourcesError} openRequest={sourceOpenRequest} onSourceCreated={sourceCreated} onSourceSaved={sourceSaved} />}
       {(area === "overview" || area === "operation" || area === "import") &&
-        <ReconciliationPage section={area} onSectionChange={(section) => navigate({ area: section })} onReviewBankStatement={(id) => navigate({ area: "bank", bankStatementId: id })} entity={reconciliationEntity} onEntityChange={setReconciliationEntity} period={reconciliationPeriod} onPeriodChange={setReconciliationPeriod} statementId={reconciliationStatementId} onStatementChange={setReconciliationStatementId} selectedSourceId={reconciliationSourceId} onSelectedSourceChange={setReconciliationSourceId} operationFilter={operationFilter} onOperationFilterChange={setOperationFilter} operationQuery={operationQuery} onOperationQueryChange={setOperationQuery} onOperationDraftDirtyChange={setOperationDraftDirty} sources={sources} sourcesError={sourcesError} historyOpenRequest={historyOpenRequest} />}
+        <ReconciliationPage section={area} onSectionChange={(section) => navigate({ area: section })} onReviewBankStatement={(id, transactionIndex) => navigate({ area: "bank", bankStatementId: id, transactionIndex })} entity={reconciliationEntity} onEntityChange={setReconciliationEntity} period={reconciliationPeriod} onPeriodChange={setReconciliationPeriod} statementId={reconciliationStatementId} onStatementChange={setReconciliationStatementId} selectedSourceId={reconciliationSourceId} onSelectedSourceChange={setReconciliationSourceId} operationFilter={operationFilter} onOperationFilterChange={setOperationFilter} operationQuery={operationQuery} onOperationQueryChange={setOperationQuery} onOperationDraftDirtyChange={setOperationDraftDirty} sessionNotes={sessionNotes} onAddSessionNote={(note) => setSessionNotes((current) => [note, ...current])} sessionActions={sessionActions} onAddSessionAction={(action) => setSessionActions((current) => [action, ...current])} sources={sources} sourcesError={sourcesError} historyOpenRequest={historyOpenRequest} />}
     </main>
     {pendingNavigation && <div className="draft-navigation-backdrop"><section className="draft-navigation-dialog" role="alertdialog" aria-modal="true" aria-labelledby="draft-navigation-title" aria-describedby="draft-navigation-description"><h2 id="draft-navigation-title">Lançamento não confirmado</h2><p id="draft-navigation-description">Sair da Operação descartará os campos preenchidos neste lançamento.</p><div><button type="button" onClick={() => setPendingNavigation(undefined)}>Continuar preenchendo</button><button type="button" onClick={() => { const target = pendingNavigation; setPendingNavigation(undefined); setOperationDraftDirty(false); commitNavigation(target); }}>Descartar e sair</button></div></section></div>}
     {spotlightOpen && <Spotlight sources={sources} onClose={onCloseSpotlight} onNavigate={navigateFromSpotlight} />}

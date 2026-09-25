@@ -21,8 +21,8 @@ Abra o endereço indicado pelo Vite, normalmente `http://localhost:5173/`. No Wi
 
 - **Histórico de extratos bancários:** navegação entre extratos e versões, importação demonstrativa e consulta dos recebimentos.
 - **Fontes pagadoras:** cadastro e identificação bancária em formato de protótipo.
-- **Conciliação › Visão geral:** resumo financeiro, fontes com movimento e painel contextual da fonte. Um recebimento sem fonte identificada oferece acesso direto à transação pendente no extrato. A seção **Conferência para fechamento** reúne a quantidade de fontes conciliadas e de recebimentos sem fonte, com atalhos para conferir cada pendência. É uma lista de verificação visual, sem fechamento financeiro real.
-- **Conciliação › Operação:** conferência por fonte e lançamentos demonstrativos. A última fonte selecionada, a busca e o filtro da fila reaparecem ao sair da Operação e voltar durante a sessão; trocar empresa, competência ou extrato limpa essa seleção. O painel da fonte oferece **Próxima fonte** para seguir a fila. Um lançamento manual parcialmente preenchido pede confirmação antes de ser descartado ao cancelar ou fechar o painel. O detalhe inclui um **Histórico de ações** recolhível com operadores e horários inteiramente fictícios, apenas para avaliar o layout da futura trilha de auditoria.
+- **Conciliação › Visão geral:** resumo financeiro, fontes com movimento e painel contextual da fonte. A seção **Conferência para fechamento** separa diferenças a conciliar, catálogos acima do recebido e recebimentos sem fonte, com acesso à ação correspondente. **Prévia de fechamento** mostra os totais e bloqueios, sem concluir financeiramente a competência. A **Linha do tempo** reúne registro do extrato, início da conciliação, lotes, observações e lançamentos manuais demonstrativos.
+- **Conciliação › Operação:** conferência por fonte e lançamentos demonstrativos. A última fonte selecionada, a busca e o filtro da fila reaparecem ao sair da Operação e voltar durante a sessão; trocar empresa, competência ou extrato limpa essa seleção. As visões rápidas incluem **Minhas pendências** (atribuição fictícia a Guilherme Vital) e **Sem fonte**. O detalhe apresenta recebimentos do extrato e lançamentos do catálogo lado a lado, além de **Próxima fonte**. Um lançamento manual parcialmente preenchido pede confirmação antes de ser descartado. O **Histórico de ações** recolhível contém exemplos fictícios.
 - **Contexto da Conciliação:** empresa, competência e versão do extrato selecionadas permanecem ao navegar para outras páginas do aplicativo e voltar à Visão geral, Operação ou Importar dados. Essa seleção vale apenas enquanto a página estiver aberta; uma recarga restaura os valores iniciais. O Histórico de extratos bancários mantém filtros próprios.
 - **Orientação nas telas:** Operação e Nova importação mostram empresa e competência no topo. O Histórico de importações mostra a empresa; o mês eventualmente selecionado aparece no filtro próprio dessa lista.
 - **Proteção da prévia:** na Nova importação, se a prévia fictícia do CSV estiver aberta, trocar empresa, competência ou extrato/versão exige escolher entre continuar conferindo ou descartar a prévia e mudar o contexto. Nenhum dado é gravado nessa etapa; a confirmação da importação continua separada.
@@ -31,7 +31,7 @@ Abra o endereço indicado pelo Vite, normalmente `http://localhost:5173/`. No Wi
 - **Automação:** apenas uma entrada de navegação conceitual. O outro aplicativo não foi integrado.
 - **Perfil:** identificação visual de Guilherme Vital, Estagiário de Backoffice; não existe autenticação real.
 - **Feedback visual:** carregamento, sucesso e erro usam um padrão discreto de avisos nas telas de importação, conciliação e fontes pagadoras. Não há notificações persistidas em servidor.
-- **Rascunho de lançamento:** ao tentar navegar para outra página com o formulário manual preenchido, o protótipo oferece continuar preenchendo ou descartar e sair. O rascunho vive só na memória da aba; recarregar a página o apaga.
+- **Rascunho de lançamento:** ao tentar navegar para outra página com o formulário manual preenchido, o protótipo oferece continuar preenchendo ou descartar e sair. O rascunho vive só na memória da aba; recarregar a página o apaga. Observações e ações da linha do tempo também ficam só na memória da aba.
 
 O título da página de importação acompanha a aba: **Nova importação** ou **Histórico de importações**. No Histórico, o filtro superior é apenas **Empresa**, pois a lista reúne todas as competências dessa empresa. Competência e extrato aparecem na aba Nova importação.
 
@@ -42,6 +42,7 @@ No detalhe de um lote importado, os lançamentos aparecem primeiro **agrupados p
 - Frontend React, TypeScript e Vite em `royalties_ops/web`.
 - `src/api.ts` é um adaptador **somente em memória**. Não faz `fetch`, não usa banco, API, armazenamento local ou autenticação. Recarregar a página restaura os dados iniciais.
 - `src/mockData.ts` contém os dados de demonstração. As ações de importação simulam resultados; não interpretam o conteúdo de PDFs ou CSVs escolhidos pelo usuário.
+- As atribuições de **Minhas pendências** são fictícias. A comparação lado a lado mostra os recebimentos do extrato selecionado e os lançamentos conhecidos na conciliação, sem efetuar validação financeira automática.
 - A numeração **Envio 1, Envio 2…** no Histórico é calculada visualmente para arquivos com o mesmo nome dentro da mesma competência. Ela não representa versionamento persistente.
 - O total mostrado no mês soma os lotes demonstrativos. **Ainda não foi definida** a regra de negócio para um reenvio substituir ou acrescentar valores; não transformar esse total em regra financeira oficial.
 - A contagem de fontes no Histórico é calculada a partir dos detalhes fictícios dos lotes em memória. Uma integração real precisará definir um resumo agregado próprio para não carregar todos os lançamentos apenas para exibir essa contagem.
@@ -56,6 +57,7 @@ No detalhe de um lote importado, os lançamentos aparecem primeiro **agrupados p
 | `royalties_ops/web/src/ReconciliationPage.tsx` | Contexto de empresa, competência e extrato; título das seções |
 | `royalties_ops/web/src/ReconciliationOverviewPage.tsx` | Visão geral e detalhe de fonte |
 | `royalties_ops/web/src/ReconciliationOperationPage.tsx` | Operação por fonte |
+| `royalties_ops/web/src/sessionNotes.ts` | Tipos das observações e ações temporárias da sessão |
 | `royalties_ops/web/src/ReconciliationImportPage.tsx` | Histórico mensal e painel lateral do arquivo |
 | `royalties_ops/web/src/StatusNotice.tsx` | Avisos consistentes de carregamento, sucesso e erro |
 | `royalties_ops/web/src/CatalogImportModal.tsx` | Fluxo fictício de importação de CSV |
@@ -84,3 +86,18 @@ O significado financeiro de reenviar um arquivo com o mesmo nome — **somar um 
 ## Publicação
 
 `node_modules/`, `dist/` e `checkpoints/` permanecem fora do repositório. Não há commit nem push automático ao executar o aplicativo.
+
+### Recuperar o layout anterior às cinco melhorias
+
+O commit [`3ae553e`](https://github.com/guivital1/esbo-o/commit/3ae553e) na branch `main` é o checkpoint publicado antes desta rodada. As cinco melhorias ficam na branch `feat/next-five-ux`. Para abrir o estado anterior em outra cópia do repositório:
+
+```bash
+git clone https://github.com/guivital1/esbo-o.git
+cd esbo-o
+git switch main
+cd royalties_ops/web
+npm ci
+npm run dev
+```
+
+Para comparar a nova proposta, execute `git switch feat/next-five-ux` na raiz do repositório e recarregue o navegador. Trocar de branch requer uma árvore de trabalho sem alterações locais pendentes.

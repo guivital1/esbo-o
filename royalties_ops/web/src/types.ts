@@ -57,7 +57,7 @@ export type IngestionPreview = { arquivo: string; origem: string; sha256: string
 export type IngestionBatch = { id: string; tipo: "AUTOMATICA" | "MANUAL"; origem: string; arquivo: string | null; sha256: string | null; status: string; linhas: number; valor_total: string; importado_em: string };
 export type IngestionBatchEntry = { data: string; id_fonte: string; nome_fonte: string; id_artista: string; nome_artista: string; valor: string; origem: string; referencia: string };
 export type IngestionBatchDetails = IngestionBatch & { entries: IngestionBatchEntry[] };
-export type ReconciliationRow = { id_fonte: string; numero_fonte: number | null; nome_fonte: string; recebido: string; catalogo_bruto: string; saldo_bruto: string; entries: CatalogEntry[] };
+export type ReconciliationRow = { id_fonte: string; numero_fonte: number | null; nome_fonte: string; assignee?: string; recebido: string; catalogo_bruto: string; saldo_bruto: string; entries: CatalogEntry[] };
 export type ReconciliationSummary = { id_conciliacao: string; bank_statement_id: string; entity: "HM" | "MDB"; period: string; bank_statement_version: number; status: string; created_at: string };
 export type ReconciliationView = ReconciliationSummary & { validated_at: string | null; pending_bank_count: number; pending_bank_amount: string;
   totals: { received: string; catalog_gross: string; gross_balance: string; received_percent: string | null; catalog_gross_percent: string | null; gross_balance_percent: string | null }; rows: ReconciliationRow[] };

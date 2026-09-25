@@ -44,11 +44,11 @@ export const demoReconciliation: ReconciliationView = {
   pending_bank_count: 1, pending_bank_amount: "500.00",
   totals: { received: "2750.00", catalog_gross: "1900.00", gross_balance: "850.00", received_percent: "100.00", catalog_gross_percent: "69.09", gross_balance_percent: "30.91" },
   rows: [
-    { id_fonte: "demo-source-a", numero_fonte: 101, nome_fonte: "Fonte Fictícia Aurora", recebido: "1500.00", catalogo_bruto: "1200.00", saldo_bruto: "300.00", entries: [
+    { id_fonte: "demo-source-a", numero_fonte: 101, nome_fonte: "Fonte Fictícia Aurora", assignee: "Guilherme Vital", recebido: "1500.00", catalogo_bruto: "1200.00", saldo_bruto: "300.00", entries: [
       { id: "demo-entry-a", tipo: "IMPORTACAO", origem: "Demonstração fictícia", referencia: "Exemplo A-01", valor: "800.00", data: `${demoPeriod}-08`, id_artista: "demo-artist-a", nome_artista: "Artista Demo A" },
       { id: "demo-entry-b", tipo: "IMPORTACAO", origem: "Demonstração fictícia", referencia: "Exemplo A-02", valor: "400.00", data: `${demoPeriod}-12`, id_artista: "demo-artist-b", nome_artista: "Artista Demo B" },
     ] },
-    { id_fonte: "demo-source-b", numero_fonte: 102, nome_fonte: "Fonte Fictícia Brisa", recebido: "750.00", catalogo_bruto: "700.00", saldo_bruto: "50.00", entries: [
+    { id_fonte: "demo-source-b", numero_fonte: 102, nome_fonte: "Fonte Fictícia Brisa", assignee: "Equipe Backoffice", recebido: "750.00", catalogo_bruto: "700.00", saldo_bruto: "50.00", entries: [
       { id: "demo-entry-c", tipo: "IMPORTACAO", origem: "Demonstração fictícia", referencia: "Exemplo B-01", valor: "700.00", data: `${demoPeriod}-17`, id_artista: "demo-artist-c", nome_artista: "Artista Demo C" },
     ] },
     { id_fonte: "demo-source-c", numero_fonte: 103, nome_fonte: "Fonte Fictícia Cais", recebido: "0.00", catalogo_bruto: "0.00", saldo_bruto: "0.00", entries: [] },
