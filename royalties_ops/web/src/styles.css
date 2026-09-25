@@ -500,7 +500,7 @@ tbody tr:hover { background: #f8faff; }
 .modal-overlay { background: rgba(27, 32, 44, .36); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
 .allocation-modal, .source-modal, .column-filter-panel { background: rgba(255, 255, 255, .91); border: 1px solid #fff; border-radius: 22px; corner-shape: squircle; box-shadow: 0 30px 75px rgba(28, 36, 54, .19); -webkit-backdrop-filter: blur(24px); backdrop-filter: blur(24px); }
 .source-success, .status.validated, .identified-status, .catalog-row-valid { color: #235e52; background: #eaf6f1; border-color: #cfe9dd; }
-:is(button, input, select, summary):focus-visible { outline: 2px solid var(--muv-blue); outline-offset: 3px; }
+:is(button, input, select, textarea, summary, a, [role="button"]):focus-visible { outline: 2px solid var(--muv-blue); outline-offset: 3px; }
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
   .design-lab-bar, .sidebar, .brand, .sidebar nav button.nav-active, .allocation-modal, .source-modal, .column-filter-panel, .export, .source-action, .cancel, .source-modal-actions .cancel { background: #fff; -webkit-backdrop-filter: none; backdrop-filter: none; }
   .sidebar { border-right-color: #9fa6b4; }
@@ -1416,6 +1416,15 @@ tbody tr:hover { background: #f8faff; }
 .operation-manual-warning > div { display: flex; flex-wrap: wrap; gap: 8px; }
 .operation-manual-warning button { padding: 7px 10px; border: 1px solid #ddcba9; border-radius: 7px; background: #fff; color: #59472d; font: inherit; font-size: 11px; font-weight: 650; cursor: pointer; }
 .operation-manual-warning button:last-child { border-color: #9a7440; background: #9a7440; color: #fff; }
+.operation-entry-impact { display: grid; gap: 8px; padding: 13px 15px; border: 1px solid #dce7f4; border-radius: 10px; background: #f7faff; color: #334a66; }
+.operation-entry-impact > strong { font-size: 11px; letter-spacing: .02em; }
+.operation-entry-impact > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; font-size: 12px; }
+.operation-entry-impact small { margin-left: 4px; color: #79899c; font-size: 10px; }
+.operation-entry-impact b { color: #27394d; font-size: 14px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.operation-entry-impact p { margin: 0; color: #71839a; font-size: 11px; line-height: 1.45; }
+.operation-entry-impact.is-over { border-color: #e9d7b5; background: #fffaf1; }
+.operation-entry-impact.is-over .operation-entry-impact-warning { color: #855e28; font-weight: 650; }
+.operation-manual-panel input[aria-invalid="true"] { border-color: #bb7e38; }
 .draft-navigation-backdrop { position: fixed; z-index: 50; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(27, 39, 56, .32); }
 .draft-navigation-dialog { width: min(100%, 420px); padding: 25px; border: 1px solid #dfe6ef; border-radius: 16px; background: #fff; box-shadow: 0 24px 70px #1b2e4740; }
 .draft-navigation-dialog h2 { margin: 0 0 8px; color: #27394d; font-size: 19px; }

@@ -37,6 +37,14 @@ function absoluteBalance(row: ReconciliationRow): bigint {
   return value < 0n ? -value : value;
 }
 
+function manualAmountCents(value: string): bigint | null {
+  const normalized = value.trim().replace(",", ".");
+  if (!/^\d+(?:\.\d{1,2})?$/.test(normalized)) return null;
+  const [whole, fractional = ""] = normalized.split(".");
+  const parsed = BigInt(whole) * 100n + BigInt(fractional.padEnd(2, "0"));
+  return parsed > 0n ? parsed : null;
+}
+
 const statusLabel: Record<QueueStatus, string> = {
   pending: "A conciliar", balanced: "Conciliada", review: "Revisar saldo",
 };
@@ -79,6 +87,7 @@ export default function ReconciliationOperationPage({ view, statement, bank, sta
   const drawer = useRef<HTMLElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const addButton = useRef<HTMLButtonElement>(null);
+  const manualWarningContinue = useRef<HTMLButtonElement>(null);
   const restoredSelection = useRef(false);
   const manualDraftDirty = manualOpen && Boolean(entryDate || artistId || amount.trim() || reference.trim());
   useEffect(() => { onDraftDirtyChange(manualDraftDirty); }, [manualDraftDirty, onDraftDirtyChange]);
@@ -119,6 +128,9 @@ export default function ReconciliationOperationPage({ view, statement, bank, sta
   const filteredGroups = groups.filter((item) => item.nome.toLocaleLowerCase("pt-BR").includes(term));
   const filteredEntries = entries.filter((item) => `${item.nome_artista ?? ""} ${item.origem} ${item.referencia}`.toLocaleLowerCase("pt-BR").includes(term));
   const receivedCents = cents(row?.recebido ?? "0.00");
+  const enteredCents = manualAmountCents(amount);
+  const projectedConciliated = enteredCents === null ? null : cents(row?.catalogo_bruto ?? "0.00") + enteredCents;
+  const projectedPending = projectedConciliated === null ? null : receivedCents - projectedConciliated;
   const metricPercent = (value: string) => {
     if (receivedCents === 0n) return "—";
     const scaled = (cents(value) * 10000n + receivedCents / 2n) / receivedCents;
@@ -130,7 +142,7 @@ export default function ReconciliationOperationPage({ view, statement, bank, sta
     if (manualDraftDirty) { setPendingManualExit("detail"); return; }
     setManualOpen(false);
     setDetailOpen(false);
-    requestAnimationFrame(() => trigger.current?.focus());
+    requestAnimationFrame(restoreSourceFocus);
   };
   const closeManual = () => {
     if (saving) return;
@@ -141,8 +153,14 @@ export default function ReconciliationOperationPage({ view, statement, bank, sta
   const discardManual = () => {
     const closeDrawer = pendingManualExit === "detail";
     setEntryDate(""); setArtistId(""); setAmount(""); setReference(""); setPendingManualExit(null); setManualOpen(false);
-    if (closeDrawer) { setDetailOpen(false); requestAnimationFrame(() => trigger.current?.focus()); }
+    if (closeDrawer) { setDetailOpen(false); requestAnimationFrame(restoreSourceFocus); }
     else requestAnimationFrame(() => addButton.current?.focus());
+  };
+  const restoreSourceFocus = () => {
+    if (trigger.current?.isConnected) { trigger.current.focus(); return; }
+    const sourceButton = [...document.querySelectorAll<HTMLButtonElement>(".operation-source-row[data-source-id]")]
+      .find((button) => button.dataset.sourceId === sourceId);
+    (sourceButton ?? document.querySelector<HTMLButtonElement>(".operation-priority button"))?.focus();
   };
   const selectSource = (id: string) => {
     onSourceChange(id);
@@ -167,17 +185,19 @@ export default function ReconciliationOperationPage({ view, statement, bank, sta
   useEffect(() => {
     if (!detailOpen) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") { event.preventDefault(); if (manualOpen) closeManual(); else closeDetail(); return; }
+      if (document.querySelector('[role="alertdialog"][aria-modal="true"]')) return;
+      if (event.key === "Escape") { event.preventDefault(); if (pendingManualExit) { setPendingManualExit(null); requestAnimationFrame(() => dateInput.current?.focus()); } else if (manualOpen) closeManual(); else closeDetail(); return; }
       if (event.key !== "Tab" || !drawer.current) return;
-      const focusable = [...drawer.current.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled), select:not(:disabled), a[href]")];
+      const focusable = [...drawer.current.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], summary, [tabindex]:not([tabindex='-1'])")]
+        .filter((element) => element.getClientRects().length > 0);
       if (!focusable.length) return;
       const first = focusable[0], last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+      if (event.shiftKey && (!drawer.current.contains(document.activeElement) || document.activeElement === first)) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && (!drawer.current.contains(document.activeElement) || document.activeElement === last)) { event.preventDefault(); first.focus(); }
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [detailOpen, manualOpen, saving]);
+  }, [detailOpen, manualOpen, manualDraftDirty, pendingManualExit, saving, sourceId]);
   useEffect(() => {
     if (!manualOpen) return;
     dateInput.current?.focus();
@@ -187,23 +207,26 @@ export default function ReconciliationOperationPage({ view, statement, bank, sta
     });
     return () => controller.abort();
   }, [manualOpen]);
+  useEffect(() => { if (pendingManualExit) manualWarningContinue.current?.focus(); }, [pendingManualExit]);
 
   const saveManual = async (event: FormEvent) => {
     event.preventDefault();
-    if (!view || !sourceId) return;
+    if (!view || !sourceId || enteredCents === null) return;
+    const normalizedAmount = `${enteredCents / 100n}.${String(enteredCents % 100n).padStart(2, "0")}`;
     setError(""); setSaving(true);
     try {
       const saved = await addManualCatalogEntry(view.id_conciliacao, { data: entryDate, id_fonte: sourceId,
-        id_artista: artistId, valor: amount.trim().replace(",", "."), referencia: reference.trim(),
+        id_artista: artistId, valor: normalizedAmount, referencia: reference.trim(),
         idempotency_key: submissionKey.current });
       onSaved(saved);
       onAddSessionAction({ id: crypto.randomUUID(), reconciliationId: view.id_conciliacao, sourceId,
-        title: "Lançamento manual adicionado", detail: `${row?.nome_fonte ?? "Fonte"} · ${money(amount.trim().replace(",", "."))} · ${reference.trim()}`,
+        title: "Lançamento manual adicionado", detail: `${row?.nome_fonte ?? "Fonte"} · ${money(normalizedAmount)} · ${reference.trim()}`,
         actor: "Guilherme Vital · Estagiário de Backoffice", createdAt: new Date().toISOString() });
       setPendingManualExit(null); setManualOpen(false); setEntryDate(""); setArtistId(""); setAmount(""); setReference("");
       submissionKey.current = crypto.randomUUID();
       const warnings = (saved as ReconciliationView & { ingestion_warnings?: string[] }).ingestion_warnings ?? [];
       setFeedback(`Lançamento salvo. Conciliado e A conciliar foram atualizados.${warnings.length ? ` ${warnings.join(" ")}` : ""}`);
+      requestAnimationFrame(() => addButton.current?.focus());
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Não foi possível salvar o lançamento."); }
     finally { setSaving(false); }
   };
@@ -225,7 +248,7 @@ export default function ReconciliationOperationPage({ view, statement, bank, sta
       {filter === "mine" && <p className="operation-filter-hint">Atribuição demonstrativa a Guilherme Vital nesta competência.</p>}
       <div className="operation-source-rows">{filter === "unidentified" ? (visibleUnidentified.length ? visibleUnidentified.map(({ item, index }) => <button key={item.id_transacao ?? index} type="button" className="operation-source-row operation-unidentified-row" onClick={() => view && onReviewBankStatement(view.bank_statement_id, index)}><span className="operation-row-identity"><strong>{item.description}</strong><small>{item.date.split("-").reverse().join("/")} · Extrato {bank ?? "bancário"}</small></span><span className="operation-row-values"><span>Recebido <b>{money(item.amount)}</b></span></span><span className="operation-row-next"><span className="operation-row-status is-review">Sem fonte</span><small>Analisar no extrato</small></span><span className="operation-row-arrow" aria-hidden="true">›</span></button>) : <div className="operation-list-empty">{unidentifiedRows.length ? "Nenhum recebimento corresponde à busca." : "Nenhum recebimento sem fonte nesta competência."}</div>) : visibleQueue.length ? visibleQueue.map((item) => {
         const status = queueStatus(item);
-        return <button key={item.id_fonte} type="button" className={`operation-source-row ${status === "balanced" ? "is-balanced" : ""} ${item.id_fonte === selectedSourceId ? "is-selected" : ""}`} onClick={(event) => { trigger.current = event.currentTarget; selectSource(item.id_fonte); }}>
+        return <button key={item.id_fonte} data-source-id={item.id_fonte} type="button" className={`operation-source-row ${status === "balanced" ? "is-balanced" : ""} ${item.id_fonte === selectedSourceId ? "is-selected" : ""}`} onClick={(event) => { trigger.current = event.currentTarget; selectSource(item.id_fonte); }}>
           <span className="operation-row-identity"><strong>{item.nome_fonte}</strong><small>ID Fonte {sourceNumber(item.numero_fonte)}{item.assignee ? ` · ${item.assignee}` : ""}</small></span>
           <span className="operation-row-values"><span>Recebido <b>{money(item.recebido)}</b></span><span>Conciliado <b>{money(item.catalogo_bruto)}</b></span><span className="operation-row-difference">Diferença <b>{money(item.saldo_bruto)}</b></span></span>
           <span className="operation-row-next"><span className={`operation-row-status is-${status}`}>{statusLabel[status]}</span><small>{status === "pending" ? "Conferir lançamentos" : status === "review" ? "Revisar composição" : "Valores conferidos"}</small></span><span className="operation-row-arrow" aria-hidden="true">›</span>
@@ -247,8 +270,10 @@ export default function ReconciliationOperationPage({ view, statement, bank, sta
           : <ul className="operation-composition-list">{filteredEntries.map((entry) => <li key={entry.id}><div><strong>{entry.nome_artista || "Artista não identificado"}</strong><small>{entry.data_referencia ?? entry.data.slice(0, 10)} · {entry.origem}{entry.referencia ? ` · ${entry.referencia}` : ""}</small></div><b>{money(entry.valor)}</b></li>)}</ul>}
         {(mode === "artists" ? filteredGroups.length : filteredEntries.length) === 0 && <div className="reconciliation-empty-state"><strong>{search ? "Nenhum resultado para a busca." : "Nenhum lançamento nesta fonte."}</strong><p>{search ? "Tente outra referência ou limpe a busca." : "Importe um arquivo ou adicione um lançamento manual para começar."}</p></div>}
       </section><details className="operation-activity"><summary><span>Histórico de ações</span><small>Exemplo visual · dados fictícios</small></summary><div className="operation-activity-list">{(demoActivity[row.id_fonte] ?? []).length ? demoActivity[row.id_fonte].map((item, index) => <div className="operation-activity-row" key={`${row.id_fonte}-${index}`}><div><strong>{item.action}</strong><span>{item.actor}</span></div><time dateTime={`${view.period}-${item.day}T${item.time}:00`}>{item.day}/{view.period.slice(5)}/{view.period.slice(0, 4)} · {item.time}</time></div>) : <p>Nenhuma ação de demonstração para esta fonte.</p>}</div></details></> : <section className="operation-manual-panel" aria-label="Adicionar catálogo manualmente"><header className="operation-manual-header"><div><p className="eyebrow">NOVO LANÇAMENTO</p><h3>Adicionar manualmente</h3><p>Fonte: {row.nome_fonte}</p></div><button type="button" className="operation-drawer-close" aria-label="Fechar lançamento manual" disabled={saving} onClick={closeManual}>×</button></header>
-        {pendingManualExit && <div className="operation-manual-warning" role="alert"><strong>Descartar lançamento não confirmado?</strong><p>Os campos preenchidos serão perdidos.</p><div><button type="button" onClick={() => setPendingManualExit(null)}>Continuar preenchendo</button><button type="button" onClick={discardManual}>Descartar rascunho</button></div></div>}
-        <form onSubmit={saveManual}><div className="source-modal-body source-form-fields"><label>Data<input ref={dateInput} required type="date" value={entryDate} onChange={(event) => setEntryDate(event.target.value)} /></label><label>Artista<select required value={artistId} onChange={(event) => setArtistId(event.target.value)}><option value="">Selecione um artista</option>{artists.map((artist) => <option key={artist.id_artista} value={artist.id_artista}>{artist.nome_artista}{artist.ativa ? "" : " (inativo)"}</option>)}</select></label><label>Valor (R$)<input required inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0,00" /></label><label>Referência / observação<input required maxLength={500} value={reference} onChange={(event) => setReference(event.target.value)} placeholder="Identifique a origem deste valor" /></label>{artistsError && <StatusNotice tone="error">{artistsError}</StatusNotice>}{error && <StatusNotice tone="error">{error}</StatusNotice>}</div><footer className="source-modal-actions"><button type="button" className="cancel" disabled={saving} onClick={closeManual}>Cancelar</button><button type="submit" className="process" disabled={saving || !entryDate || !artistId || !amount.trim() || !reference.trim()}>{saving ? "Salvando…" : "Confirmar"}</button></footer></form>
+        {pendingManualExit && <div className="operation-manual-warning" role="alert"><strong>Descartar lançamento não confirmado?</strong><p>Os campos preenchidos serão perdidos.</p><div><button ref={manualWarningContinue} type="button" onClick={() => { setPendingManualExit(null); requestAnimationFrame(() => dateInput.current?.focus()); }}>Continuar preenchendo</button><button type="button" onClick={discardManual}>Descartar rascunho</button></div></div>}
+        <form onSubmit={saveManual}><div className="source-modal-body source-form-fields"><label>Data<input ref={dateInput} required type="date" value={entryDate} onChange={(event) => setEntryDate(event.target.value)} /></label><label>Artista<select required value={artistId} onChange={(event) => setArtistId(event.target.value)}><option value="">Selecione um artista</option>{artists.map((artist) => <option key={artist.id_artista} value={artist.id_artista}>{artist.nome_artista}{artist.ativa ? "" : " (inativo)"}</option>)}</select></label><label>Valor (R$)<input required inputMode="decimal" value={amount} aria-invalid={Boolean(amount.trim()) && enteredCents === null} aria-describedby="manual-impact" onChange={(event) => setAmount(event.target.value)} placeholder="0,00" /></label>
+          <div id="manual-impact" className={`operation-entry-impact${projectedPending !== null && projectedPending < 0n ? " is-over" : ""}`} aria-live="polite" aria-atomic="true"><strong>Impacto deste lançamento</strong>{projectedPending === null ? <p>{amount.trim() ? "Informe um valor positivo com até duas casas decimais." : "Informe um valor para visualizar os novos saldos."}</p> : <><div><span>Conciliado <small>após salvar</small></span><b>{moneyFromCents(projectedConciliated!)}</b></div><div><span>A conciliar <small>após salvar</small></span><b>{moneyFromCents(projectedPending)}</b></div>{projectedPending < 0n && <p className="operation-entry-impact-warning">O lançamento ultrapassa o recebido em {moneyFromCents(-projectedPending)}. Confira o valor antes de confirmar.</p>}</>}</div>
+          <label>Referência / observação<input required maxLength={500} value={reference} onChange={(event) => setReference(event.target.value)} placeholder="Identifique a origem deste valor" /></label>{artistsError && <StatusNotice tone="error">{artistsError}</StatusNotice>}{error && <StatusNotice tone="error">{error}</StatusNotice>}</div><footer className="source-modal-actions"><button type="button" className="cancel" disabled={saving} onClick={closeManual}>Cancelar</button><button type="submit" className="process" disabled={saving || !entryDate || !artistId || enteredCents === null || !reference.trim()}>{saving ? "Salvando…" : "Confirmar"}</button></footer></form>
       </section>}
     </aside></div>}
   </div>;

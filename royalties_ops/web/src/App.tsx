@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getSources } from "./api";
 import type { Source } from "./types";
 import SourcesPage from "./SourcesPage";
@@ -41,6 +41,9 @@ export default function App({ spotlightOpen, onCloseSpotlight }: Props) {
   const [sessionActions, setSessionActions] = useState<SessionAction[]>([]);
   const [operationDraftDirty, setOperationDraftDirty] = useState(false);
   const [pendingNavigation, setPendingNavigation] = useState<NavigationTarget>();
+  const navigationDialog = useRef<HTMLElement>(null);
+  const navigationContinue = useRef<HTMLButtonElement>(null);
+  const navigationReturnFocus = useRef<HTMLElement>(null);
   const [bankHistoryRequest, setBankHistoryRequest] = useState(0);
   const [bankOpenRequest, setBankOpenRequest] = useState<{ statementId: string; transactionIndex?: number; key: number }>();
   const [automationPreviewOpen, setAutomationPreviewOpen] = useState(false);
@@ -74,9 +77,34 @@ export default function App({ spotlightOpen, onCloseSpotlight }: Props) {
     setAutomationPreviewOpen(false);
   };
   const navigate = (target: NavigationTarget) => {
-    if (operationDraftDirty && area === "operation" && target.area !== "operation") { setPendingNavigation(target); return; }
+    if (operationDraftDirty && area === "operation" && target.area !== "operation") {
+      navigationReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      setPendingNavigation(target); return;
+    }
     commitNavigation(target);
   };
+  const cancelPendingNavigation = () => {
+    setPendingNavigation(undefined);
+    requestAnimationFrame(() => {
+      const draftInput = document.querySelector<HTMLInputElement>(".operation-manual-panel input");
+      if (draftInput) draftInput.focus();
+      else navigationReturnFocus.current?.focus();
+    });
+  };
+  useEffect(() => {
+    if (!pendingNavigation) return;
+    navigationContinue.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { event.preventDefault(); cancelPendingNavigation(); return; }
+      if (event.key !== "Tab" || !navigationDialog.current) return;
+      const buttons = [...navigationDialog.current.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")];
+      const first = buttons[0], last = buttons.at(-1);
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [pendingNavigation]);
   const navigateFromSpotlight = (next: SearchArea, sourceId?: string, history?: HistorySearchTarget) => {
     navigate({ area: next, sourceId, history });
   };
@@ -106,7 +134,7 @@ export default function App({ spotlightOpen, onCloseSpotlight }: Props) {
       {(area === "overview" || area === "operation" || area === "import") &&
         <ReconciliationPage section={area} onSectionChange={(section) => navigate({ area: section })} onReviewBankStatement={(id, transactionIndex) => navigate({ area: "bank", bankStatementId: id, transactionIndex })} entity={reconciliationEntity} onEntityChange={setReconciliationEntity} period={reconciliationPeriod} onPeriodChange={setReconciliationPeriod} statementId={reconciliationStatementId} onStatementChange={setReconciliationStatementId} selectedSourceId={reconciliationSourceId} onSelectedSourceChange={setReconciliationSourceId} operationFilter={operationFilter} onOperationFilterChange={setOperationFilter} operationQuery={operationQuery} onOperationQueryChange={setOperationQuery} onOperationDraftDirtyChange={setOperationDraftDirty} sessionNotes={sessionNotes} onAddSessionNote={(note) => setSessionNotes((current) => [note, ...current])} sessionActions={sessionActions} onAddSessionAction={(action) => setSessionActions((current) => [action, ...current])} sources={sources} sourcesError={sourcesError} historyOpenRequest={historyOpenRequest} />}
     </main>
-    {pendingNavigation && <div className="draft-navigation-backdrop"><section className="draft-navigation-dialog" role="alertdialog" aria-modal="true" aria-labelledby="draft-navigation-title" aria-describedby="draft-navigation-description"><h2 id="draft-navigation-title">Lançamento não confirmado</h2><p id="draft-navigation-description">Sair da Operação descartará os campos preenchidos neste lançamento.</p><div><button type="button" onClick={() => setPendingNavigation(undefined)}>Continuar preenchendo</button><button type="button" onClick={() => { const target = pendingNavigation; setPendingNavigation(undefined); setOperationDraftDirty(false); commitNavigation(target); }}>Descartar e sair</button></div></section></div>}
+    {pendingNavigation && <div className="draft-navigation-backdrop"><section ref={navigationDialog} className="draft-navigation-dialog" role="alertdialog" aria-modal="true" aria-labelledby="draft-navigation-title" aria-describedby="draft-navigation-description"><h2 id="draft-navigation-title">Lançamento não confirmado</h2><p id="draft-navigation-description">Sair da Operação descartará os campos preenchidos neste lançamento.</p><div><button ref={navigationContinue} type="button" onClick={cancelPendingNavigation}>Continuar preenchendo</button><button type="button" onClick={() => { const target = pendingNavigation; setPendingNavigation(undefined); setOperationDraftDirty(false); commitNavigation(target); }}>Descartar e sair</button></div></section></div>}
     {spotlightOpen && <Spotlight sources={sources} onClose={onCloseSpotlight} onNavigate={navigateFromSpotlight} />}
   </div>;
 }

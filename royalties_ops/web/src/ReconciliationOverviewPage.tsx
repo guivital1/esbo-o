@@ -26,6 +26,11 @@ export default function ReconciliationOverviewPage({ view, statement, batches, s
   const [closeoutOpen, setCloseoutOpen] = useState(false);
   const closeoutDismiss = useRef<HTMLButtonElement>(null);
   const closeoutDialog = useRef<HTMLElement>(null);
+  const closeoutTrigger = useRef<HTMLButtonElement>(null);
+  const detailAside = useRef<HTMLElement>(null);
+  const detailDismiss = useRef<HTMLButtonElement>(null);
+  const detailTrigger = useRef<HTMLButtonElement>(null);
+  const closeDetail = () => { setSelectedId(null); requestAnimationFrame(() => detailTrigger.current?.focus()); };
   useEffect(() => {
     if (!closeoutOpen) return;
     closeoutDismiss.current?.focus();
@@ -37,8 +42,15 @@ export default function ReconciliationOverviewPage({ view, statement, batches, s
       else if (!event.shiftKey && document.activeElement === buttons.at(-1)) { event.preventDefault(); buttons[0]?.focus(); }
     };
     document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
+    return () => { document.removeEventListener("keydown", onKeyDown); requestAnimationFrame(() => closeoutTrigger.current?.focus()); };
   }, [closeoutOpen]);
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && detailAside.current?.contains(document.activeElement)) { event.preventDefault(); closeDetail(); }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
   const activeRows = useMemo(() => view?.rows.filter(hasMovement) ?? [], [view]);
   const pendingRows = activeRows.filter((row) => cents(row.saldo_bruto) !== 0n);
   const completedRows = activeRows.length - pendingRows.length;
@@ -114,13 +126,13 @@ export default function ReconciliationOverviewPage({ view, statement, batches, s
       <div className="overview-table-wrap"><table className="overview-table"><thead><tr><th>ID Fonte</th><th>Fonte pagadora</th><th>Recebido</th><th>Conciliado</th><th>A conciliar</th><th>Status</th></tr></thead><tbody>{rows.map((row) => {
         const status = sourceStatus(row);
         return <tr key={row.id_fonte} className={selected?.id_fonte === row.id_fonte ? "is-selected" : ""}>
-          <td>{sourceNumber(row.numero_fonte)}</td><td><button type="button" className="overview-source-button" aria-label={`Ver detalhes de ${row.nome_fonte}`} onClick={() => { setSelectedId(row.id_fonte); setDetailTab("composition"); }}>{row.nome_fonte}</button></td>
+          <td>{sourceNumber(row.numero_fonte)}</td><td><button type="button" className="overview-source-button" aria-label={`Ver detalhes de ${row.nome_fonte}`} onClick={(event) => { detailTrigger.current = event.currentTarget; setSelectedId(row.id_fonte); setDetailTab("composition"); requestAnimationFrame(() => detailDismiss.current?.focus()); }}>{row.nome_fonte}</button></td>
           <td className="amount">{money(row.recebido)}</td><td className="amount">{money(row.catalogo_bruto)}</td><td className="amount">{money(row.saldo_bruto)}</td><td><span className={`overview-status overview-status--${status.tone}`}>{status.label}</span></td>
         </tr>;
       })}</tbody></table>{rows.length === 0 && <p className="overview-empty">Nenhuma fonte com movimento encontrada.</p>}</div>
       {unidentifiedCount > 0 && <div className="overview-unidentified"><span className="overview-unidentified-dot" />{unidentifiedCount} recebimento sem fonte identificada · {unidentifiedAmount}<button type="button" onClick={() => onReviewBankStatement(view.bank_statement_id, unidentifiedRows[0]?.index)}>Analisar no extrato →</button></div>}
-      {selected && <aside className="overview-detail" aria-label={`Detalhe de ${selected.nome_fonte}`}>
-        <div className="overview-detail-head"><div><span className="overview-detail-kicker">FONTE PAGADORA · {sourceNumber(selected.numero_fonte)}</span><h2>{selected.nome_fonte}</h2><span className={`overview-status overview-status--${sourceStatus(selected).tone}`}>{sourceStatus(selected).label}</span></div><button type="button" className="overview-detail-close" aria-label="Fechar detalhe da fonte" onClick={() => setSelectedId(null)}>×</button></div>
+      {selected && <aside ref={detailAside} className="overview-detail" aria-label={`Detalhe de ${selected.nome_fonte}`}>
+        <div className="overview-detail-head"><div><span className="overview-detail-kicker">FONTE PAGADORA · {sourceNumber(selected.numero_fonte)}</span><h2>{selected.nome_fonte}</h2><span className={`overview-status overview-status--${sourceStatus(selected).tone}`}>{sourceStatus(selected).label}</span></div><button ref={detailDismiss} type="button" className="overview-detail-close" aria-label="Fechar detalhe da fonte" onClick={closeDetail}>×</button></div>
         <div className="overview-detail-summary" aria-label="Valores da fonte"><div><span>Recebido</span><strong>{money(selected.recebido)}</strong></div><div><span>Conciliado</span><strong>{money(selected.catalogo_bruto)}</strong></div><div><span>A conciliar</span><strong>{money(selected.saldo_bruto)}</strong></div></div>
         <div className="overview-detail-section"><div className="overview-detail-tabs" role="group" aria-label="Dados da fonte"><button type="button" className={detailTab === "composition" ? "is-active" : ""} aria-pressed={detailTab === "composition"} onClick={() => setDetailTab("composition")}>Composição por artista</button><button type="button" className={detailTab === "entries" ? "is-active" : ""} aria-pressed={detailTab === "entries"} onClick={() => setDetailTab("entries")}>Lançamentos <span>{selected.entries.length}</span></button><button type="button" className={detailTab === "notes" ? "is-active" : ""} aria-pressed={detailTab === "notes"} onClick={() => setDetailTab("notes")}>Atividade <span>{activity.length}</span></button></div>
           {detailTab === "composition" ? <div className="overview-detail-list">{artistTotals.length ? artistTotals.map(([name, total]) => <div key={name}><span>{name}</span><strong>{moneyFromCents(total)}</strong></div>) : <p>Sem composição de artistas nesta fonte.</p>}</div>
@@ -135,7 +147,7 @@ export default function ReconciliationOverviewPage({ view, statement, batches, s
       <div className="overview-closeout-row"><span>Diferença a conciliar</span><strong>{positiveRows.length} {positiveRows.length === 1 ? "fonte" : "fontes"}</strong>{positiveRows[0] ? <button type="button" onClick={() => onOpenSource(positiveRows[0].id_fonte)}>Conferir fonte →</button> : <span />}</div>
       <div className="overview-closeout-row"><span>Catálogo acima do recebido</span><strong>{excessRows.length} {excessRows.length === 1 ? "fonte" : "fontes"}</strong>{excessRows[0] ? <button type="button" onClick={() => onOpenSource(excessRows[0].id_fonte)}>Revisar saldo →</button> : <span />}</div>
       <div className="overview-closeout-row"><span>Recebimentos sem fonte</span><strong>{unidentifiedCount ? `${unidentifiedCount} · ${unidentifiedAmount}` : "Nenhum"}</strong>{unidentifiedCount ? <button type="button" onClick={() => onReviewBankStatement(view.bank_statement_id, unidentifiedRows[0]?.index)}>Analisar extrato →</button> : <span />}</div>
-      <footer><button type="button" className="overview-closeout-preview" onClick={() => setCloseoutOpen(true)}>Prévia de fechamento <span aria-hidden="true">→</span></button></footer>
+      <footer><button ref={closeoutTrigger} type="button" className="overview-closeout-preview" onClick={() => setCloseoutOpen(true)}>Prévia de fechamento <span aria-hidden="true">→</span></button></footer>
     </section>
     <section className="overview-timeline" aria-label="Linha do tempo da competência"><header><div><h2>Linha do tempo</h2><p>Importações, observações e ações desta competência.</p></div><span>{timeline.length} {timeline.length === 1 ? "registro" : "registros"}</span></header><ol>{timeline.map((event) => <li key={event.id}><span className="overview-timeline-mark" aria-hidden="true" /><div><strong>{event.title}</strong><p>{event.detail}</p><small>{event.actor}</small></div><time dateTime={event.at}>{activityDate.format(new Date(event.at))}</time></li>)}</ol></section>
     {closeoutOpen && <div className="overview-closeout-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setCloseoutOpen(false); }}><section ref={closeoutDialog} className="overview-closeout-dialog" role="dialog" aria-modal="true" aria-labelledby="closeout-title" aria-describedby="closeout-description"><header><div><span>REVISÃO DA COMPETÊNCIA</span><h2 id="closeout-title">Prévia de fechamento</h2><p id="closeout-description">Confira os totais e resolva as pendências antes de concluir a competência.</p></div><button ref={closeoutDismiss} type="button" aria-label="Fechar prévia de fechamento" onClick={() => setCloseoutOpen(false)}>×</button></header><div className="overview-closeout-totals"><div><span>Recebido</span><strong>{money(view.totals.received)}</strong></div><div><span>Conciliado</span><strong>{money(view.totals.catalog_gross)}</strong></div><div><span>A conciliar</span><strong>{money(view.totals.gross_balance)}</strong></div></div><div className="overview-closeout-blockers"><h3>{blockingCount ? "Antes de concluir" : "Valores prontos para revisão"}</h3>{blockingCount ? <ul>{positiveRows.length > 0 && <li>{positiveRows.length} {positiveRows.length === 1 ? "fonte com diferença" : "fontes com diferença"} a conciliar</li>}{excessRows.length > 0 && <li>{excessRows.length} {excessRows.length === 1 ? "fonte com catálogo" : "fontes com catálogo"} acima do recebido</li>}{unidentifiedCount > 0 && <li>{unidentifiedCount} {unidentifiedCount === 1 ? "recebimento sem fonte" : "recebimentos sem fonte"}</li>}</ul> : <p>Esta é somente uma revisão visual. Nenhum status financeiro será alterado.</p>}</div><footer><span>{blockingCount ? "Conclusão indisponível enquanto houver pendências." : "Conclusão real indisponível neste protótipo."}</span><button type="button" onClick={() => setCloseoutOpen(false)}>Voltar à conferência</button></footer></section></div>}
