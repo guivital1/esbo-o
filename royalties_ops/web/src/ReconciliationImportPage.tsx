@@ -153,7 +153,7 @@ export default function ReconciliationImportPage({ view, entity, tab, onTabChang
 
   return <div className="reconciliation-import-page" aria-label="Importar dados da conciliação">
     <div className="import-page-tabs" role="group" aria-label="Áreas de importação" onKeyDown={onTabArrowKey}><button type="button" className={tab === "new" ? "is-active" : ""} onClick={() => onTabChange("new")}>Nova importação</button><button type="button" className={tab === "history" ? "is-active" : ""} onClick={() => onTabChange("history")}>Histórico</button></div>
-    {tab === "new" && (view ? <CatalogImportWorkflow key={view.id_conciliacao} reconciliationId={view.id_conciliacao} onOpenSource={onOpenSource} onPreviewOpenChange={onPreviewOpenChange} onConfirmed={(batchId, saved) => {
+    {tab === "new" && (view ? <CatalogImportWorkflow key={view.id_conciliacao} reconciliationId={view.id_conciliacao} period={view.period} onOpenSource={onOpenSource} onPreviewOpenChange={onPreviewOpenChange} onConfirmed={(batchId, saved) => {
       onConfirmed(saved); setSelectedBatch({ id: batchId, reconciliationId: saved.id_conciliacao });
       setExpandedPeriod(saved.period); setRevision((current) => current + 1); setError("");
     }} /> : <p className="reconciliation-empty">Selecione ou inicie uma conciliação para importar um CSV nesta competência.</p>)}

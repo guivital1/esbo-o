@@ -1,5 +1,5 @@
 import { ChangeEvent, DragEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { exportSavedBankStatement, getBankStatement, getBankStatements, importBankStatement,
+import { exportSavedBankStatement, getBankStatement, getBankStatements, importBankStatement, restoreStatementAllocation,
   saveStatementAllocations, StatementVersionConflict } from "./api";
 import { confirmAllocation, draftFor } from "./allocations";
 import type { AllocationDraft } from "./allocations";
@@ -48,6 +48,9 @@ export default function BankStatementsPage({ sources, sourcesError, openRequest,
   const [exporting, setExporting] = useState(false);
   const [savingAllocation, setSavingAllocation] = useState(false);
   const [allocationError, setAllocationError] = useState("");
+  const [lastAllocationUndo, setLastAllocationUndo] = useState<{ statementId: string; transactionId: string; description: string;
+    previous?: TransactionAllocation; expectedCurrent: TransactionAllocation }>();
+  const [undoingAllocation, setUndoingAllocation] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const request = useRef<AbortController | null>(null);
   const modeInitialized = useRef(false);
@@ -105,13 +108,13 @@ export default function BankStatementsPage({ sources, sourcesError, openRequest,
     onClearReturnContext();
     request.current?.abort(); request.current = null;
     setMode("history"); setStatement(undefined); setActiveIndex(null); setFile(undefined);
-    setError(""); setFeedback(""); setVersionConflict("");
+    setError(""); setFeedback(""); setVersionConflict(""); setLastAllocationUndo(undefined);
     refreshHistory().catch(() => setError("Não foi possível atualizar o histórico."));
   };
   const showImport = () => {
     onClearReturnContext();
     setMode("import"); setStatement(undefined); setAllocations({}); setFile(undefined);
-    setError(""); setFeedback(""); setVersionConflict("");
+    setError(""); setFeedback(""); setVersionConflict(""); setLastAllocationUndo(undefined);
     if (input.current) input.current.value = "";
   };
   const selectFile = (selected?: File) => {
@@ -155,15 +158,32 @@ export default function BankStatementsPage({ sources, sourcesError, openRequest,
     if (!statement?.id_extrato || !statement.rows[index].id_transacao) return;
     const allocation = confirmAllocation(index, statement.rows[index], draft, sources);
     if (!allocation) return;
+    const previous = allocations[index];
     setSavingAllocation(true); setAllocationError("");
     try {
       const saved = await saveStatementAllocations(statement.id_extrato, statement.rows[index].id_transacao!, allocation.allocations);
       setStatement(saved); setAllocations(saved.allocations ?? {}); setActiveIndex(null);
       setFeedback("Desdobramento salvo no histórico.");
+      if (saved.allocations?.[index]) setLastAllocationUndo({ statementId: statement.id_extrato!, transactionId: statement.rows[index].id_transacao!,
+        description: statement.rows[index].description, previous, expectedCurrent: saved.allocations[index] });
       onAllocationSaved(allocation.allocations.map((part) => part.id_fonte));
       refreshHistory().catch(() => { /* A resposta contém o estado salvo. */ });
     } catch (reason) { setAllocationError(reason instanceof Error ? reason.message : "Não foi possível salvar o desdobramento."); }
     finally { setSavingAllocation(false); }
+  };
+  const undoAllocation = async () => {
+    if (!lastAllocationUndo) return;
+    setUndoingAllocation(true); setError("");
+    try {
+      const restored = await restoreStatementAllocation(lastAllocationUndo.statementId, lastAllocationUndo.transactionId,
+        lastAllocationUndo.previous, lastAllocationUndo.expectedCurrent);
+      setStatement(restored); setAllocations(restored.allocations ?? {}); setLastAllocationUndo(undefined);
+      setFeedback(`Desdobramento de “${lastAllocationUndo.description}” desfeito.`);
+      onAllocationSaved([...new Set([...lastAllocationUndo.expectedCurrent.allocations, ...(lastAllocationUndo.previous?.allocations ?? [])]
+        .map((allocation) => allocation.id_fonte))]);
+      refreshHistory().catch(() => { /* O estado restaurado já está na resposta. */ });
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Não foi possível desfazer o desdobramento."); }
+    finally { setUndoingAllocation(false); }
   };
 
   const visibleHistory = useMemo(() => history.filter((item) =>
@@ -198,6 +218,7 @@ export default function BankStatementsPage({ sources, sourcesError, openRequest,
       <div className="bank-statement-navigation"><button type="button" className="text-button back-history" onClick={showHistory}>← Voltar ao histórico</button>
         {returnToOperation && returnToOperation.statementId === statement.id_extrato && <div className="bank-return-context"><span>{returnToOperation.sourceId ? `Fonte: ${sources.find((source) => source.id_fonte === returnToOperation.sourceId)?.nome_fonte ?? "identificada"}` : "Conferência iniciada na conciliação"} · {({ all: "Todas", action: "Precisam de ação", mine: "Minhas pendências", unidentified: "Sem fonte" } as const)[returnToOperation.filter]}</span><button type="button" onClick={onReturnToOperation}>Voltar à Operação <span aria-hidden="true">→</span></button></div>}</div>
       {feedback && <StatusNotice tone="success">{feedback}</StatusNotice>}{error && <StatusNotice tone="error">{error}</StatusNotice>}
+      {lastAllocationUndo && lastAllocationUndo.statementId === statement.id_extrato && <div className="reversible-action" role="status"><span>Última ação: desdobramento de <strong>{lastAllocationUndo.description}</strong>. {lastAllocationUndo.previous ? "O vínculo anterior será restaurado." : "A identificação será removida."}</span><button type="button" disabled={undoingAllocation} onClick={() => void undoAllocation()}>{undoingAllocation ? "Desfazendo…" : "Desfazer desdobramento"}</button></div>}
       <section className="file-card" aria-label="Extrato salvo"><div className="file-icon">PDF</div><div className="file-meta"><strong>{statement.file_name}</strong><span>{statement.entity} · {statement.bank} · v{statement.version}{statement.is_current ? " · versão atual" : " · versão anterior"}</span>{statement.statement_period_start && statement.statement_period_end && <span>Período: {date.format(asDate(statement.statement_period_start))} — {date.format(asDate(statement.statement_period_end))}</span>}</div><span className={`status ${pending ? "review" : "validated"}`}>{pending ? "Com pendências" : "Validado"}</span><button className="export" type="button" onClick={exportXlsx} disabled={exporting} title="Exporta todos os movimentos salvos, sem os filtros visuais.">{exporting ? "Exportando XLSX…" : "Exportar XLSX"}</button></section>
       <section className="summary" aria-label="Resumo operacional"><article><strong>{money.format(Number(statement.displayed_total))}</strong><span>Valor total</span></article><article><strong>{statement.displayed_count}</strong><span>Transações</span></article><article><strong>{pending}</strong><span>Pendências</span></article></section>
       <section className="table-section"><div className="table-toolbar"><div><h2>Recebimentos</h2><p>{rows.length} de {statement.rows.length} linhas visíveis</p></div><div className="bank-table-search"><label className="search"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar descrição ou fonte" aria-label="Buscar recebimentos" /></label>{hasBankFilters(bankFilters, search) && <button type="button" className="clear-bank-filters" onClick={() => { setSearch(""); setBankFilters(emptyBankFilters()); }}>Limpar filtros</button>}</div></div><div className="table-wrap"><table><thead><BankColumnFilters filters={bankFilters} onChange={(patch) => setBankFilters((current) => ({ ...current, ...patch }))} sourceOptions={sourceOptions} /></thead><tbody onKeyDown={receiptsKeyboard.onKeyDown}>{rows.map(({ row, index }) => <tr key={row.id_transacao ?? index}><td>{date.format(asDate(row.date))}</td><td>{row.description}</td><ReceiptSourceCell row={row} allocation={allocations[index]} sources={sources} transactionIndex={index} keyboardProps={receiptsKeyboard.itemProps(row.id_transacao ?? String(index))} onOpen={() => openRow(index)} /><td className="amount">{money.format(Number(row.amount))}</td></tr>)}</tbody></table>{rows.length === 0 && <p className="empty">Nenhum recebimento encontrado.</p>}</div></section><p className="session-note">Desdobramentos são salvos no histórico. O XLSX preserva os movimentos originais do extrato.</p></>}

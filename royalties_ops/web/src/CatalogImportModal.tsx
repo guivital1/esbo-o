@@ -1,17 +1,17 @@
 import { DragEvent, FormEvent, useEffect, useState } from "react";
-import { confirmCatalogCsv, previewCatalogCsv } from "./api";
-import type { IngestionPreview, ReconciliationView } from "./types";
-import { money } from "./reconciliationFormat";
+import { confirmCatalogCsv, getIngestionBatches, previewCatalogCsv } from "./api";
+import type { IngestionBatch, IngestionPreview, ReconciliationView } from "./types";
+import { cents, money, monthLabel } from "./reconciliationFormat";
 import StatusNotice from "./StatusNotice";
 
-type Props = { reconciliationId: string; onConfirmed: (batchId: string, view: ReconciliationView) => void;
+type Props = { reconciliationId: string; period: string; onConfirmed: (batchId: string, view: ReconciliationView) => void;
   onOpenSource?: (id: string) => void; onPreviewOpenChange?: (open: boolean) => void };
 
 // Design Lab never reads uploaded CSV bytes. The preview is always synthetic.
 const demoOrigin = "Catálogo CSV";
 
 // The validated CSV preview/confirm flow has one UI implementation.
-export default function CatalogImportWorkflow({ reconciliationId, onConfirmed, onOpenSource, onPreviewOpenChange }: Props) {
+export default function CatalogImportWorkflow({ reconciliationId, period, onConfirmed, onOpenSource, onPreviewOpenChange }: Props) {
   const [file, setFile] = useState<File>();
   const [preview, setPreview] = useState<IngestionPreview>();
   const [busy, setBusy] = useState(false);
@@ -19,13 +19,15 @@ export default function CatalogImportWorkflow({ reconciliationId, onConfirmed, o
   const [complete, setComplete] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [completedSourceId, setCompletedSourceId] = useState("");
+  const [possibleDuplicates, setPossibleDuplicates] = useState<IngestionBatch[]>([]);
+  const [duplicateAcknowledged, setDuplicateAcknowledged] = useState(false);
 
   useEffect(() => {
     onPreviewOpenChange?.(Boolean(preview) && !complete);
   }, [preview, complete, onPreviewOpenChange]);
   useEffect(() => () => onPreviewOpenChange?.(false), [onPreviewOpenChange]);
 
-  const chooseFile = (next?: File) => { setFile(next); setPreview(undefined); setComplete(false); setCompletedSourceId(""); setError(""); };
+  const chooseFile = (next?: File) => { setFile(next); setPreview(undefined); setComplete(false); setCompletedSourceId(""); setPossibleDuplicates([]); setDuplicateAcknowledged(false); setError(""); };
   const drop = (event: DragEvent) => {
     event.preventDefault(); setDragging(false);
     const selected = event.dataTransfer.files?.[0];
@@ -33,13 +35,18 @@ export default function CatalogImportWorkflow({ reconciliationId, onConfirmed, o
   };
   const inspect = async (event: FormEvent) => {
     event.preventDefault(); if (!file) return;
-    setBusy(true); setError(""); setPreview(undefined);
-    try { setPreview(await previewCatalogCsv(reconciliationId, file, demoOrigin)); }
+    setBusy(true); setError(""); setPreview(undefined); setPossibleDuplicates([]); setDuplicateAcknowledged(false);
+    try {
+      const nextPreview = await previewCatalogCsv(reconciliationId, file, demoOrigin);
+      const priorBatches = await getIngestionBatches(reconciliationId);
+      setPossibleDuplicates(priorBatches.filter((batch) => batch.arquivo?.toLocaleLowerCase("pt-BR") === nextPreview.arquivo.toLocaleLowerCase("pt-BR")));
+      setPreview(nextPreview);
+    }
     catch (reason) { setError(reason instanceof Error ? reason.message : "Não foi possível validar o CSV."); }
     finally { setBusy(false); }
   };
   const confirm = async () => {
-    if (!file || !preview?.pode_confirmar) return;
+    if (!file || !preview?.pode_confirmar || (possibleDuplicates.length > 0 && !duplicateAcknowledged)) return;
     setBusy(true); setError("");
     try {
       const saved = await confirmCatalogCsv(reconciliationId, file, demoOrigin, preview.sha256);
@@ -72,9 +79,10 @@ export default function CatalogImportWorkflow({ reconciliationId, onConfirmed, o
       {preview && <div className="catalog-preview" aria-label="Prévia da importação"><div className="catalog-preview-title"><div><p className="eyebrow">ETAPA 2 DE 3 · CONFERIR</p><h3>{preview.arquivo}</h3></div>{preview.warnings > 0 && <span>{preview.warnings} {preview.warnings === 1 ? "aviso" : "avisos"}</span>}</div>
         <div className="catalog-preview-summary"><div><small>Linhas válidas</small><strong>{preview.linhas_validas}</strong></div><div><small>Linhas com erro</small><strong>{preview.linhas_bloqueadas}</strong></div><div><small>Artistas</small><strong>{preview.artistas_afetados}</strong></div><div><small>Valor válido</small><strong>{money(preview.valor_total_valido)}</strong></div></div>
         <div className={`catalog-review-notice ${!preview.pode_confirmar || preview.linhas_bloqueadas ? "has-errors" : ""}`} role="status"><strong>{!preview.pode_confirmar ? "Arquivo ainda não pode ser importado" : preview.linhas_bloqueadas ? `${preview.linhas_bloqueadas} ${preview.linhas_bloqueadas === 1 ? "linha com erro ficará" : "linhas com erro ficarão"} fora da importação` : "Arquivo pronto para importar"}</strong><p>{preview.pode_confirmar ? `${preview.linhas_validas} ${preview.linhas_validas === 1 ? "linha válida será importada" : "linhas válidas serão importadas"}. ${preview.linhas_bloqueadas ? "Confira os erros abaixo ou troque o arquivo para corrigi-los." : "Revise os valores antes de confirmar."}` : "Confira os problemas abaixo, corrija o arquivo e gere uma nova prévia."}</p></div>
+        {possibleDuplicates.length > 0 && <section className="catalog-duplicate-warning" aria-label="Possível importação duplicada"><strong>Possível reimportação nesta competência</strong><p>Já existe {possibleDuplicates.length === 1 ? "um envio" : `${possibleDuplicates.length} envios`} com o nome <b>{preview.arquivo}</b> em {monthLabel(period)}. Compare antes de confirmar.</p><div className="catalog-duplicate-comparison"><span>Prévia atual <b>{money(preview.valor_total_valido)}</b></span>{possibleDuplicates.map((batch) => <span key={batch.id}>Envio de {new Date(batch.importado_em).toLocaleDateString("pt-BR")} <b>{money(batch.valor_total)}</b> · {cents(batch.valor_total) === cents(preview.valor_total_valido) ? "mesmo valor" : "valor diferente"}</span>)}</div><label><input type="checkbox" checked={duplicateAcknowledged} onChange={(event) => setDuplicateAcknowledged(event.target.checked)} /> Conferi os envios anteriores e quero continuar com esta importação demonstrativa.</label><small>O nome igual é apenas um alerta; a regra oficial para reenvio ou substituição ainda será definida.</small></section>}
         {preview.erros.map((message, index) => <StatusNotice tone="error" key={index}>{message}</StatusNotice>)}
         {issueCounts.size > 0 && <section className="catalog-issues" aria-label="Problemas encontrados"><h4>O que corrigir no arquivo</h4><ul>{[...issueCounts].map(([message, count]) => <li key={message}><span>{message}</span><small>{count} {count === 1 ? "ocorrência" : "ocorrências"}</small></li>)}</ul></section>}
       </div>}
-      <footer className="catalog-workflow-actions">{preview ? <><button type="button" className="source-action" onClick={() => setPreview(undefined)}>Trocar arquivo</button><button type="button" className="process" disabled={busy || !preview.pode_confirmar} onClick={confirm}>{busy ? "Importando…" : `Importar ${preview.linhas_validas} ${preview.linhas_validas === 1 ? "linha válida" : "linhas válidas"}`}</button></> : <button type="submit" className="process" disabled={busy || !file}>{busy ? "Conferindo…" : "Gerar prévia"}</button>}</footer></form>}
+      <footer className="catalog-workflow-actions">{preview ? <><button type="button" className="source-action" onClick={() => { setPreview(undefined); setPossibleDuplicates([]); setDuplicateAcknowledged(false); }}>Trocar arquivo</button><button type="button" className="process" disabled={busy || !preview.pode_confirmar || (possibleDuplicates.length > 0 && !duplicateAcknowledged)} onClick={confirm}>{busy ? "Importando…" : `Importar ${preview.linhas_validas} ${preview.linhas_validas === 1 ? "linha válida" : "linhas válidas"}`}</button></> : <button type="submit" className="process" disabled={busy || !file}>{busy ? "Conferindo…" : "Gerar prévia"}</button>}</footer></form>}
   </section>;
 }

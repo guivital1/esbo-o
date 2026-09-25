@@ -26,6 +26,7 @@ export default function ReconciliationOverviewPage({ view, statement, batches, s
   const [detailTab, setDetailTab] = useState<"composition" | "entries" | "notes">("composition");
   const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
   const [closeoutOpen, setCloseoutOpen] = useState(false);
+  const [showAllQualityIssues, setShowAllQualityIssues] = useState(false);
   const closeoutDismiss = useRef<HTMLButtonElement>(null);
   const closeoutDialog = useRef<HTMLElement>(null);
   const closeoutTrigger = useRef<HTMLButtonElement>(null);
@@ -63,6 +64,18 @@ export default function ReconciliationOverviewPage({ view, statement, batches, s
   const unidentifiedCount = statement ? unidentifiedRows.length : view?.pending_bank_count ?? 0;
   const unidentifiedAmount = statement ? moneyFromCents(unidentifiedRows.reduce((total, { row }) => total + cents(row.amount), 0n)) : money(view?.pending_bank_amount ?? "0");
   const blockingCount = positiveRows.length + excessRows.length + unidentifiedCount;
+  const qualityIssues = [
+    ...unidentifiedRows.map(({ row, index }) => ({
+      id: `bank-${index}`, title: "Recebimento sem fonte pagadora",
+      detail: `${row.description} · ${money(row.amount)}`, action: "Analisar no extrato",
+      open: () => onReviewBankStatement(view?.bank_statement_id ?? "", index),
+    })),
+    ...activeRows.flatMap((row) => row.entries.flatMap((entry) => {
+      const missing = [!entry.id_artista && !entry.nome_artista ? "artista" : "", !entry.referencia.trim() ? "referência" : ""].filter(Boolean);
+      return missing.length ? [{ id: `entry-${row.id_fonte}-${entry.id}`, title: `Lançamento sem ${missing.join(" e ")}`,
+        detail: `${row.nome_fonte} · ${money(entry.valor)}`, action: "Abrir fonte", open: () => onOpenSource(row.id_fonte) }] : [];
+    })),
+  ];
   const rows = activeRows.filter((row) =>
     (filter === "all" || cents(row.saldo_bruto) !== 0n) &&
     `${row.nome_fonte} ${sourceNumber(row.numero_fonte)}`.toLocaleLowerCase("pt-BR")
@@ -151,6 +164,9 @@ export default function ReconciliationOverviewPage({ view, statement, batches, s
       <div className="overview-closeout-row"><span>Catálogo acima do recebido</span><strong>{excessRows.length} {excessRows.length === 1 ? "fonte" : "fontes"}</strong>{excessRows[0] ? <button type="button" onClick={() => onOpenSource(excessRows[0].id_fonte)}>Revisar saldo →</button> : <span />}</div>
       <div className="overview-closeout-row"><span>Recebimentos sem fonte</span><strong>{unidentifiedCount ? `${unidentifiedCount} · ${unidentifiedAmount}` : "Nenhum"}</strong>{unidentifiedCount ? <button type="button" onClick={() => onReviewBankStatement(view.bank_statement_id, unidentifiedRows[0]?.index)}>Analisar extrato →</button> : <span />}</div>
       <footer><button ref={closeoutTrigger} type="button" className="overview-closeout-preview" onClick={() => setCloseoutOpen(true)}>Prévia de fechamento <span aria-hidden="true">→</span></button></footer>
+    </section>
+    <section className="overview-data-quality" aria-label="Qualidade dos dados"><header><div><h2>Qualidade dos dados</h2><p>Informações essenciais que precisam de conferência.</p></div><span>{qualityIssues.length} {qualityIssues.length === 1 ? "item" : "itens"}</span></header>
+      {qualityIssues.length ? <><ul>{qualityIssues.slice(0, showAllQualityIssues ? undefined : 5).map((issue) => <li key={issue.id}><div><strong>{issue.title}</strong><small>{issue.detail}</small></div><button type="button" onClick={issue.open}>{issue.action} →</button></li>)}</ul>{qualityIssues.length > 5 && <button type="button" className="overview-quality-more" onClick={() => setShowAllQualityIssues((current) => !current)}>{showAllQualityIssues ? "Mostrar menos" : `Ver todos os ${qualityIssues.length} itens`}</button>}</> : <p className="overview-quality-empty">Nenhuma informação essencial ausente nesta competência.</p>}
     </section>
     <section className="overview-timeline" aria-label="Linha do tempo da competência"><header><div><h2>Linha do tempo</h2><p>Importações, observações e ações desta competência.</p></div><span>{timeline.length} {timeline.length === 1 ? "registro" : "registros"}</span></header><ol>{timeline.map((event) => <li key={event.id}><span className="overview-timeline-mark" aria-hidden="true" /><div><strong>{event.title}</strong><p>{event.detail}</p><small>{event.actor}</small></div><time dateTime={event.at}>{activityDate.format(new Date(event.at))}</time></li>)}</ol></section>
     {closeoutOpen && <div className="overview-closeout-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setCloseoutOpen(false); }}><section ref={closeoutDialog} className="overview-closeout-dialog" role="dialog" aria-modal="true" aria-labelledby="closeout-title" aria-describedby="closeout-description"><header><div><span>REVISÃO DA COMPETÊNCIA</span><h2 id="closeout-title">Prévia de fechamento</h2><p id="closeout-description">Confira os totais e resolva as pendências antes de concluir a competência.</p></div><button ref={closeoutDismiss} type="button" aria-label="Fechar prévia de fechamento" onClick={() => setCloseoutOpen(false)}>×</button></header><div className="overview-closeout-totals"><div><span>Recebido</span><strong>{money(view.totals.received)}</strong></div><div><span>Conciliado</span><strong>{money(view.totals.catalog_gross)}</strong></div><div><span>A conciliar</span><strong>{money(view.totals.gross_balance)}</strong></div></div><div className="overview-closeout-blockers"><h3>{blockingCount ? "Antes de concluir" : "Valores prontos para revisão"}</h3>{blockingCount ? <ul>{positiveRows.length > 0 && <li>{positiveRows.length} {positiveRows.length === 1 ? "fonte com diferença" : "fontes com diferença"} a conciliar</li>}{excessRows.length > 0 && <li>{excessRows.length} {excessRows.length === 1 ? "fonte com catálogo" : "fontes com catálogo"} acima do recebido</li>}{unidentifiedCount > 0 && <li>{unidentifiedCount} {unidentifiedCount === 1 ? "recebimento sem fonte" : "recebimentos sem fonte"}</li>}</ul> : <p>Esta é somente uma revisão visual. Nenhum status financeiro será alterado.</p>}</div><footer><span>{blockingCount ? "Conclusão indisponível enquanto houver pendências." : "Conclusão real indisponível neste protótipo."}</span><button type="button" onClick={() => setCloseoutOpen(false)}>Voltar à conferência</button></footer></section></div>}

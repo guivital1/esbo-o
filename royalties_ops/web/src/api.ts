@@ -1,6 +1,6 @@
 // Local, volatile Design Lab adapter. No fetch, network, storage or production API.
 import type { Artist, BankIdentification, BankStatementSummary, BankStatementView, IngestionBatch, IngestionBatchDetails, IngestionPreview,
-  ReconciliationSummary, ReconciliationView, Source, SourceAllocation } from "./types";
+  ReconciliationSummary, ReconciliationView, Source, SourceAllocation, TransactionAllocation } from "./types";
 import { demoArtists, demoBatch, demoIdentifications, demoPeriod, demoReconciliation, demoSources, demoStatement } from "./mockData";
 
 export type MockScenario = "data" | "empty";
@@ -109,6 +109,21 @@ export async function saveStatementAllocations(statementId: string, transactionI
   reconciliations.filter((reconciliation) => reconciliation.bank_statement_id === statementId).forEach(recalculate);
   return copy(item);
 }
+export async function restoreStatementAllocation(statementId: string, transactionId: string,
+  previous: TransactionAllocation | undefined, expectedCurrent: TransactionAllocation): Promise<BankStatementView> {
+  const item = statements.find((row) => row.id_extrato === statementId);
+  const index = item?.rows.findIndex((row) => row.id_transacao === transactionId) ?? -1;
+  if (!item || index < 0 || JSON.stringify(item.allocations?.[index]) !== JSON.stringify(expectedCurrent))
+    throw new Error("O recebimento mudou desde a última ação. Confira antes de desfazer.");
+  item.allocations ??= {};
+  if (previous) item.allocations[index] = copy(previous);
+  else delete item.allocations[index];
+  item.review_count = item.rows.filter((row, at) => row.review_required && !item.allocations?.[at]).length;
+  item.status = item.review_count ? "review" : "validated";
+  item.status_label = item.review_count ? "Com pendências" : "Validado";
+  reconciliations.filter((reconciliation) => reconciliation.bank_statement_id === statementId).forEach(recalculate);
+  return copy(item);
+}
 export async function exportSavedBankStatement(_id: string, signal?: AbortSignal): Promise<void> {
   aborted(signal);
   throw new Error("Exportação indisponível nesta prévia. Nenhum arquivo operacional é gerado.");
@@ -194,6 +209,14 @@ export async function addManualCatalogEntry(id: string, input: { data: string; i
       valor: input.valor, data: input.data, id_artista: input.id_artista, nome_artista: artist?.nome_artista ?? "Artista Demo" });
   }
   recalculate(item); return copy(item);
+}
+export async function undoManualCatalogEntry(id: string, entryId: string): Promise<ReconciliationView> {
+  const item = reconciliations.find((row) => row.id_conciliacao === id);
+  const row = item?.rows.find((part) => part.entries.some((entry) => entry.id === entryId && entry.tipo === "MANUAL"));
+  if (!item || !row) throw new Error("Este lançamento não está mais disponível para desfazer.");
+  row.entries = row.entries.filter((entry) => entry.id !== entryId);
+  recalculate(item);
+  return copy(item);
 }
 export async function getArtists(signal?: AbortSignal): Promise<Artist[]> { aborted(signal); return copy(demoArtists); }
 

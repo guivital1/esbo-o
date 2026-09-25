@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { addManualCatalogEntry, getArtists } from "./api";
+import { addManualCatalogEntry, getArtists, undoManualCatalogEntry } from "./api";
 import type { Artist, BankStatementView, CatalogEntry, ReconciliationRow, ReconciliationView } from "./types";
 import { cents, money, moneyFromCents, monthLabel, percent, sourceNumber } from "./reconciliationFormat";
 import StatusNotice from "./StatusNotice";
@@ -91,6 +91,9 @@ export default function ReconciliationOperationPage({ view, statement, bank, sta
   const [savingView, setSavingView] = useState(false);
   const [viewFeedback, setViewFeedback] = useState("");
   const [expandedDivergence, setExpandedDivergence] = useState<"review" | "pending" | "unidentified" | null>(null);
+  const [lastManualUndo, setLastManualUndo] = useState<{ reconciliationId: string; entryId: string; sourceId: string;
+    sourceName: string; amount: string; beforeConciliated: string; beforePending: string }>();
+  const [undoingManual, setUndoingManual] = useState(false);
   const submissionKey = useRef(crypto.randomUUID());
   const dateInput = useRef<HTMLInputElement>(null);
   const closeButton = useRef<HTMLButtonElement>(null);
@@ -258,12 +261,16 @@ export default function ReconciliationOperationPage({ view, statement, bank, sta
     event.preventDefault();
     if (!view || !sourceId || enteredCents === null) return;
     const normalizedAmount = `${enteredCents / 100n}.${String(enteredCents % 100n).padStart(2, "0")}`;
+    const entryId = submissionKey.current;
     setError(""); setSaving(true);
     try {
       const saved = await addManualCatalogEntry(view.id_conciliacao, { data: entryDate, id_fonte: sourceId,
         id_artista: artistId, valor: normalizedAmount, referencia: reference.trim(),
         idempotency_key: submissionKey.current });
       onSaved(saved);
+      setLastManualUndo({ reconciliationId: view.id_conciliacao, entryId, sourceId,
+        sourceName: row?.nome_fonte ?? "Fonte", amount: normalizedAmount,
+        beforeConciliated: row?.catalogo_bruto ?? "0", beforePending: row?.saldo_bruto ?? "0" });
       onAddSessionAction({ id: crypto.randomUUID(), reconciliationId: view.id_conciliacao, sourceId,
         title: "Lançamento manual adicionado", detail: `${row?.nome_fonte ?? "Fonte"} · ${money(normalizedAmount)} · ${reference.trim()}`,
         actor: "Guilherme Vital · Estagiário de Backoffice", createdAt: new Date().toISOString(),
@@ -278,6 +285,25 @@ export default function ReconciliationOperationPage({ view, statement, bank, sta
       requestAnimationFrame(() => addButton.current?.focus());
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Não foi possível salvar o lançamento."); }
     finally { setSaving(false); }
+  };
+  const undoManual = async () => {
+    if (!lastManualUndo) return;
+    setUndoingManual(true); setError("");
+    try {
+      const restored = await undoManualCatalogEntry(lastManualUndo.reconciliationId, lastManualUndo.entryId);
+      onSaved(restored);
+      onAddSessionAction({ id: crypto.randomUUID(), reconciliationId: lastManualUndo.reconciliationId,
+        sourceId: lastManualUndo.sourceId, title: "Lançamento manual desfeito",
+        detail: `${lastManualUndo.sourceName} · ${money(lastManualUndo.amount)}`,
+        actor: "Guilherme Vital · Estagiário de Backoffice", createdAt: new Date().toISOString(),
+        changes: [
+          { field: "Conciliado", before: moneyFromCents(cents(lastManualUndo.beforeConciliated) + cents(lastManualUndo.amount)), after: money(lastManualUndo.beforeConciliated) },
+          { field: "A conciliar", before: moneyFromCents(cents(lastManualUndo.beforePending) - cents(lastManualUndo.amount)), after: money(lastManualUndo.beforePending) },
+        ] });
+      setFeedback(`Lançamento de ${money(lastManualUndo.amount)} desfeito.`);
+      setLastManualUndo(undefined);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Não foi possível desfazer o lançamento."); }
+    finally { setUndoingManual(false); }
   };
 
   if (!view) return <p className="reconciliation-empty">Selecione ou inicie uma conciliação para trabalhar por fonte pagadora.</p>;
@@ -336,6 +362,8 @@ export default function ReconciliationOperationPage({ view, statement, bank, sta
       <label className="operation-source-switch">Trocar fonte<select aria-label="Fonte pagadora da operação" value={sourceId} disabled={manualOpen || saving} onChange={(event) => selectSource(event.target.value)}><option value="" disabled>Selecione uma fonte</option>{queue.map((item) => <option key={item.id_fonte} value={item.id_fonte}>{sourceNumber(item.numero_fonte)} · {item.nome_fonte}</option>)}</select></label>
       {nextSource && !manualOpen && <button type="button" className="operation-next-source" onClick={() => selectSource(nextSource.id_fonte)}>Próxima fonte <strong>{nextSource.nome_fonte}</strong><span aria-hidden="true">→</span></button>}
       {feedback && <StatusNotice tone="success">{feedback}</StatusNotice>}
+      {error && !manualOpen && <StatusNotice tone="error">{error}</StatusNotice>}
+      {!manualOpen && lastManualUndo?.sourceId === sourceId && lastManualUndo.reconciliationId === view.id_conciliacao && <div className="reversible-action" role="status"><span>Última ação: lançamento de <strong>{money(lastManualUndo.amount)}</strong> nesta fonte. Conciliado voltará a {money(lastManualUndo.beforeConciliated)}.</span><button type="button" disabled={undoingManual} onClick={() => void undoManual()}>{undoingManual ? "Desfazendo…" : "Desfazer lançamento"}</button></div>}
       <section className="operation-totals" aria-label="Resumo da fonte"><div><span>Recebido</span><strong>{money(row.recebido)}</strong><small>{receivedCents === 0n ? "—" : "100,00%"}</small></div><div><span>Conciliado</span><strong>{money(row.catalogo_bruto)}</strong><small>{metricPercent(row.catalogo_bruto)}</small></div><div><span>A conciliar</span><strong>{money(row.saldo_bruto)}</strong><small>{metricPercent(row.saldo_bruto)}</small></div></section>
       {!manualOpen && <details className="operation-compare" open><summary>Conferir extrato e lançamentos lado a lado <span aria-hidden="true">⌄</span></summary><div className="operation-compare-columns"><div><h3>Recebimentos no extrato <small>{sourceReceipts.length}</small></h3>{sourceReceipts.length ? sourceReceipts.map((receipt) => <div className="operation-compare-line" key={receipt.key}><span><strong>{receipt.description}</strong><small>{receipt.date.split("-").reverse().join("/")}</small></span><b>{receipt.amount}</b></div>) : <p>Nenhum recebimento vinculado a esta fonte no extrato selecionado.</p>}</div><div><h3>Lançamentos do catálogo <small>{entries.length}</small></h3>{entries.length ? entries.map((entry) => <div className="operation-compare-line" key={entry.id}><span><strong>{entry.nome_artista || "Artista não identificado"}</strong><small>{entry.referencia || entry.origem}</small></span><b>{money(entry.valor)}</b></div>) : <p>Nenhum lançamento para esta fonte.</p>}</div></div></details>}
       {!manualOpen ? <><section className={`operation-next-step is-${queueStatus(row)}`} aria-label="Próximo passo"><div><span>PRÓXIMO PASSO</span><strong>{queueStatus(row) === "pending" ? `${money(row.saldo_bruto)} pendentes de conciliação` : queueStatus(row) === "review" ? `Lançamentos excedem o recebido em ${moneyFromCents(-cents(row.saldo_bruto))}` : "Valores desta fonte conciliados"}</strong><p>{queueStatus(row) === "pending" ? "Compare o recebido com os lançamentos. Adicione um valor somente após identificá-lo." : queueStatus(row) === "review" ? "Confira os lançamentos para localizar a diferença antes de adicionar novos valores." : "Confira a composição abaixo ou selecione outra fonte da fila."}</p></div>{queueStatus(row) === "pending" && <button ref={addButton} type="button" className="process" onClick={() => { setError(""); setArtistsError(""); setManualOpen(true); }}>Adicionar lançamento</button>}{queueStatus(row) === "review" && <button type="button" className="operation-step-secondary" onClick={() => setMode("entries")}>Ver lançamentos</button>}</section><section className="operation-composition" aria-label="Composição da fonte"><header className="operation-composition-heading"><div><h3>Composição da fonte</h3><p>{identifiedArtistCount} {identifiedArtistCount === 1 ? "artista" : "artistas"} · {entries.length} {entries.length === 1 ? "lançamento" : "lançamentos"}</p></div>{queueStatus(row) !== "pending" && <button ref={addButton} type="button" className="operation-step-secondary" onClick={() => { setError(""); setArtistsError(""); setManualOpen(true); }}>Adicionar lançamento</button>}</header>
